@@ -1,11 +1,16 @@
+#' Cox score IRLS-SuSiE path
+#' @export
 Run_Cox <- function(X, y, status, Z = NULL,
                     L, max.iter, min.iter, max.eps, susie.iter, pip.thres = 5e-3,
-                    verbose = TRUE, n_threads = 1, coverage = 0.5,
-                    estimate_residual_variance = FALSE, scaled_prior_variance = 0.5,
-                    residual_variance = 1, ridge = 1e-6, ...) {
+                    verbose = TRUE, n_threads = 1, coverage = 0.95,
+                    estimate_residual_variance = FALSE, scaled_prior_variance = 1,
+                    residual_variance = 1, ridge = 1e-6,
+                    L.init = 1,
+                    init_cor_method = c("pearson", "spearman"), ...) {
 
   n = length(y)
   p = ncol(X)
+  init_cor_method <- match.arg(init_cor_method)
 
   # ============================================
   # Handle Z edge cases
@@ -32,14 +37,17 @@ Run_Cox <- function(X, y, status, Z = NULL,
   surv_y = survival::Surv(y, status)
 
   # ============================================
-  # Initial Cox fit with covariates only
+  # Greedy low-dimensional Cox warm start
   # ============================================
+  fit_final = greedy_cox_warm_start(
+    X = X, y = y, status = status, Z = Z, L.init = L.init,
+    cor_method = init_cor_method
+  )
   if (ncol(Z) == 0) {
-    fit_final = survival::coxph(surv_y ~ 1, ties = "breslow")
+    alpha = numeric(0)
   } else {
-    fit_final = survival::coxph(surv_y ~ Z, ties = "breslow")
+    alpha = coef(fit_final)[seq_len(ncol(Z))]
   }
-  alpha = coef(fit_final)
 
   # Initialize tracking variables
   g = c()
@@ -69,7 +77,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
                        status = as.integer(status), n_threads = n_threads)
     a     = as.numeric(ss$a)
     B     = as.matrix(ss$B)
-    XZEty = as.numeric(ss$Xty)        # 这里抠 X 块 = X'M
+    XZEty = as.numeric(ss$Xty)
     n_eff = ss$d
 
     XZEa = XZE * sqrt(a)
@@ -81,7 +89,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     idxE = p + 1L
     idxZ = p + 1L + seq_len(q)
 
-    # 信息块
+    # Information blocks.
     XtX = XZEtXZE[idxX, idxX, drop = FALSE]
     XtE = XZEtXZE[idxX, idxE, drop = FALSE]   # X'W eta
     XtZ = XZEtXZE[idxX, idxZ, drop = FALSE]
@@ -90,9 +98,9 @@ Run_Cox <- function(X, y, status, Z = NULL,
     ZtX = XZEtXZE[idxZ, idxX, drop = FALSE]
     ZtE = XZEtXZE[idxZ, idxE, drop = FALSE]
 
-    XtM = XZEty[idxX]                          # X'M，天然垂直于 Z
+    XtM = XZEty[idxX]
 
-    # 对 (X, eta) 块整体投影消 Z
+    # Project the (X, eta) block against Z.
     diag(ZtZ) = diag(ZtZ) + ridge
     Zinv_ZtX = solve(ZtZ, ZtX)
     Zinv_ZtE = solve(ZtZ, ZtE)
@@ -100,7 +108,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     XtX_proj = XtX - matrixMultiply(XtZ, Zinv_ZtX)
     XtE_proj = as.vector(XtE - matrixVectorMultiply(XtZ, Zinv_ZtE))
 
-    # 合成
+    # Combine projected information with the Cox score.
     Xty = XtE_proj + XtM
     XtX = XtX_proj
 
@@ -116,6 +124,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     fitX <- susieR::susie_rss(
       z = zhat, R = R, n = n_eff, L = L,
       residual_variance = 1,
+      scaled_prior_variance = scaled_prior_variance,
       estimate_residual_variance = estimate_residual_variance,
       max_iter = susie.iter,
       estimate_prior_method = "EM",
@@ -137,8 +146,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     cs_indices = sort(cs_indices)
 
     if (length(cs_indices) == 0) {
-      warning("No credible set detected at iteration ", iter)
-      break
+      stop("No credible set detected at iteration ", iter)
     }
 
     Alpha_filtered <- fitX$alpha * 0

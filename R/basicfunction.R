@@ -23,7 +23,7 @@ q <- ncol(Z)
 #
 colnames_W <- colnames(W)
 colnames_Z <- colnames(Z)
-# --- W × W interactions ---
+# --- W by W interactions ---
 ww_cols <- p * (p + 1) / 2
 WW <- matrix(NA, n, ww_cols)
 colnames_WW <- character(ww_cols)
@@ -36,7 +36,7 @@ colnames_WW[col_idx] <- paste0(colnames_W[i], "*", colnames_W[j])
 col_idx <- col_idx + 1
 }
 }
-# --- Z × W interactions ---
+# --- Z by W interactions ---
 if(is.null(q)==F){
 zw_cols <- q * p
 ZW <- matrix(NA, n, zw_cols)
@@ -73,6 +73,9 @@ return(active_idx)
 Identifying_MainEffect=function(fit,nam){
 summ=summary(fit)$vars
 g=unique(summ$cs[which(summ$cs>0)])
+if(length(g)==0){
+stop("No credible set detected")
+}
 bb=summary(fit)$cs
 S=list()
 for(i in g){
@@ -162,6 +165,184 @@ w[w_na] <- NA
 w_trim
 }
 
+init_k_from_L <- function(L.init, p) {
+  if (!is.numeric(L.init) || length(L.init) != 1L ||
+      !is.finite(L.init) || L.init < 1) {
+    stop("L.init must be a positive numeric scalar.")
+  }
+  min(as.integer(ceiling(L.init)), as.integer(p))
+}
+
+make_init_data <- function(y = NULL, Z = NULL, X = NULL, selected = integer(0)) {
+  if (!is.null(y)) {
+    n <- length(y)
+    Data <- data.frame(y = y)
+  } else if (!is.null(Z) && ncol(Z) > 0) {
+    n <- nrow(Z)
+    Data <- data.frame(row.names = seq_len(n))
+  } else {
+    n <- nrow(X)
+    Data <- data.frame(row.names = seq_len(n))
+  }
+
+  if (!is.null(Z) && ncol(Z) > 0) {
+    Zdf <- as.data.frame(Z)
+    colnames(Zdf) <- paste0("Z", seq_len(ncol(Z)))
+    Data <- cbind(Data, Zdf)
+  }
+
+  if (length(selected) > 0) {
+    Xdf <- as.data.frame(X[, selected, drop = FALSE])
+    colnames(Xdf) <- paste0("InitX", seq_along(selected))
+    Data <- cbind(Data, Xdf)
+  }
+
+  Data
+}
+
+fit_init_glm <- function(X, y, Z, selected, family) {
+  Data <- make_init_data(y = y, Z = Z, X = X, selected = selected)
+  rhs_n <- ncol(Data) - 1L
+  if (rhs_n == 0L) {
+    stats::glm(y ~ 1, data = Data, family = family)
+  } else {
+    stats::glm(y ~ ., data = Data, family = family)
+  }
+}
+
+fit_init_nb <- function(X, y, Z, selected, theta_init, estimate_theta) {
+  Data <- make_init_data(y = y, Z = Z, X = X, selected = selected)
+  rhs_n <- ncol(Data) - 1L
+  fml <- if (rhs_n == 0L) y ~ 1 else y ~ .
+
+  if (estimate_theta) {
+    tryCatch(
+      MASS::glm.nb(fml, data = Data, link = "log"),
+      error = function(e) {
+        stats::glm(
+          fml, data = Data,
+          family = MASS::negative.binomial(theta_init, link = "log")
+        )
+      }
+    )
+  } else {
+    stats::glm(
+      fml, data = Data,
+      family = MASS::negative.binomial(theta_init, link = "log")
+    )
+  }
+}
+
+fit_init_cox <- function(X, y, status, Z, selected) {
+  surv_y <- survival::Surv(y, status)
+  Data <- make_init_data(Z = Z, X = X, selected = selected)
+  if (ncol(Data) == 0L) {
+    survival::coxph(surv_y ~ 1, ties = "breslow", model = TRUE)
+  } else {
+    survival::coxph(surv_y ~ ., data = Data, ties = "breslow", model = TRUE)
+  }
+}
+
+select_by_residual_cor <- function(X, residual, available,
+                                   cor_method = c("pearson", "spearman")) {
+  cor_method <- match.arg(cor_method)
+  if (!any(available)) return(NA_integer_)
+
+  r <- as.numeric(residual)
+  ok <- is.finite(r)
+  if (sum(ok) < 3L) return(NA_integer_)
+  if (stats::sd(r[ok]) == 0) return(NA_integer_)
+
+  Xsub <- X[ok, available, drop = FALSE]
+  scores <- suppressWarnings(
+    as.numeric(stats::cor(
+      Xsub, r[ok],
+      use = "pairwise.complete.obs",
+      method = cor_method
+    ))
+  )
+  scores[!is.finite(scores)] <- NA_real_
+  if (all(is.na(scores))) return(NA_integer_)
+
+  which_available <- which(available)
+  which_available[which.max(abs(scores))]
+}
+
+greedy_glm_warm_start <- function(X, y, Z, family, L.init = 1,
+                                  cor_method = c("pearson", "spearman")) {
+  cor_method <- match.arg(cor_method)
+  p <- ncol(X)
+  k_init <- init_k_from_L(L.init, p)
+  selected <- integer(0)
+  available <- rep(TRUE, p)
+  fit <- fit_init_glm(X = X, y = y, Z = Z, selected = selected, family = family)
+
+  for (step in seq_len(k_init)) {
+    r <- stats::residuals(fit, type = "response")
+    j <- select_by_residual_cor(
+      X = X, residual = r, available = available, cor_method = cor_method
+    )
+    if (is.na(j)) break
+    selected <- c(selected, j)
+    available[j] <- FALSE
+    fit <- fit_init_glm(X = X, y = y, Z = Z, selected = selected, family = family)
+  }
+
+  fit
+}
+
+greedy_nb_warm_start <- function(X, y, Z, L.init = 1, theta_init, estimate_theta,
+                                 cor_method = c("pearson", "spearman")) {
+  cor_method <- match.arg(cor_method)
+  p <- ncol(X)
+  k_init <- init_k_from_L(L.init, p)
+  selected <- integer(0)
+  available <- rep(TRUE, p)
+  fit <- fit_init_nb(
+    X = X, y = y, Z = Z, selected = selected,
+    theta_init = theta_init, estimate_theta = estimate_theta
+  )
+
+  for (step in seq_len(k_init)) {
+    r <- stats::residuals(fit, type = "response")
+    j <- select_by_residual_cor(
+      X = X, residual = r, available = available, cor_method = cor_method
+    )
+    if (is.na(j)) break
+    selected <- c(selected, j)
+    available[j] <- FALSE
+    fit <- fit_init_nb(
+      X = X, y = y, Z = Z, selected = selected,
+      theta_init = theta_init, estimate_theta = estimate_theta
+    )
+  }
+
+  fit
+}
+
+greedy_cox_warm_start <- function(X, y, status, Z, L.init = 1,
+                                  cor_method = c("pearson", "spearman")) {
+  cor_method <- match.arg(cor_method)
+  p <- ncol(X)
+  k_init <- init_k_from_L(L.init, p)
+  selected <- integer(0)
+  available <- rep(TRUE, p)
+  fit <- fit_init_cox(X = X, y = y, status = status, Z = Z, selected = selected)
+
+  for (step in seq_len(k_init)) {
+    r <- stats::residuals(fit, type = "martingale")
+    j <- select_by_residual_cor(
+      X = X, residual = r, available = available, cor_method = cor_method
+    )
+    if (is.na(j)) break
+    selected <- c(selected, j)
+    available[j] <- FALSE
+    fit <- fit_init_cox(X = X, y = y, status = status, Z = Z, selected = selected)
+  }
+
+  fit
+}
+
 is_logit_binomial <- function(fam) {
   inherits(fam, "family") &&
     fam$link == "logit" &&
@@ -246,12 +427,12 @@ get_category_probs <- function(fit_clm, link = NULL) {
 
   # Compute cumulative probabilities using the appropriate link function
   alpha_full <- c(-Inf, alpha, Inf)
-  eta_left  <- outer(alpha_full[1:J], h, function(a, hi) a - hi)     # J × n
-  eta_right <- outer(alpha_full[2:(J+1)], h, function(a, hi) a - hi) # J × n
+  eta_left  <- outer(alpha_full[1:J], h, function(a, hi) a - hi)     # J by n
+  eta_right <- outer(alpha_full[2:(J+1)], h, function(a, hi) a - hi) # J by n
 
   # Apply the selected link function
-  m_mat_full <- t(F_link(eta_right) - F_link(eta_left))  # n × J
-  m_mat <- m_mat_full[, 1:K, drop = FALSE]  # n × (J-1)
+  m_mat_full <- t(F_link(eta_right) - F_link(eta_left))  # n by J
+  m_mat <- m_mat_full[, 1:K, drop = FALSE]  # n by (J-1)
 
   if(any(m_mat < -1e-10 | m_mat > 1 + 1e-10)) {
     warning("Some probabilities outside [0, 1]")
@@ -263,7 +444,7 @@ get_category_probs <- function(fit_clm, link = NULL) {
     warning("Sum of first J-1 probabilities exceeds 1")
   }
 
-  colnames(m_mat) <- paste0("mu_", 1:K)  # μ₁, μ₂, ..., μ_{J-1}
+  colnames(m_mat) <- paste0("mu_", 1:K)
 
   # Add link function as attribute for reference
   attr(m_mat, "link") <- link

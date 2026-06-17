@@ -1,12 +1,17 @@
+#' Binary logistic IRLS-SuSiE path
+#' @export
 Run_Binary <- function(X, y, Z = NULL,
                     family = binomial(link = "logit"),weight_cutoff=0.005,
                     L, max.iter, min.iter, max.eps, susie.iter,pip.thres=5e-3,
-                    verbose = TRUE, n_threads = 1, coverage = 0.5,
-                    estimate_residual_variance = FALSE,scaled_prior_variance=0.5,
-                    residual_variance = 1, ...) {
+                    verbose = TRUE, n_threads = 1, coverage = 0.95,
+                    estimate_residual_variance = FALSE,scaled_prior_variance=1,
+                    residual_variance = 1,
+                    L.init = 1,
+                    init_cor_method = c("pearson", "spearman"), ...) {
 
 n = n_eff= length(y)
 p = ncol(X)
+init_cor_method <- match.arg(init_cor_method)
 
 # ============================================
 # Handle Z edge cases
@@ -35,14 +40,13 @@ colnames(ZI)[1] = "Intercept"
 }
 
 # ============================================
-# Initial GLM fit with covariates only
+# Greedy low-dimensional GLM warm start
 # ============================================
-if (ncol(Z) == 0) {
-fit_final = glm(y ~ 1, family = family)
-} else {
-fit_final = glm(y ~ Z, family = family)
-}
-alpha = coef(fit_final)
+fit_final = greedy_glm_warm_start(
+X = X, y = y, Z = Z, family = family, L.init = L.init,
+cor_method = init_cor_method
+)
+alpha = coef(fit_final)[seq_len(ncol(ZI))]
 
 # Initialize tracking variables
 g = c()
@@ -106,8 +110,7 @@ CSdt <- summary(fitX)$vars
 cs_indices <- unique(CSdt$cs[CSdt$cs > 0])
 cs_indices=sort(cs_indices)
 if(length(cs_indices) == 0) {
-warning("No credible set detected at iteration ", iter)
-break
+stop("No credible set detected at iteration ", iter)
 }
 Alpha_filtered <- fitX$alpha * 0
 for(i in cs_indices) {
@@ -167,7 +170,7 @@ if (verbose) {
 plot(g, type = "o", col = "black", pch = 16,
 xlab = "Iteration",
 ylab = "Max Parameter Change",
-main = "Convergence Trace (Max |Δ| in alpha and beta)")
+main = "Convergence Trace (Max |Delta| in alpha and beta)")
 for (i in seq_along(g)) {
 text(x = i, y = g[i],
 labels = formatC(g[i], format = "e", digits = 1),

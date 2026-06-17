@@ -1,14 +1,20 @@
+#' Negative-binomial IRLS-SuSiE path
+#' @export
 Run_NB=function(X,y,Z=NULL,weight_cutoff=0.005,
                 L,max.iter,min.iter,max.eps,susie.iter,
-                verbose=TRUE,n_threads=1,coverage=0.5,
+                verbose=TRUE,n_threads=1,coverage=0.95,
                 estimate_residual_variance=FALSE,
-                residual_variance=1,pip.thres=0.005,
+                residual_variance=1,scaled_prior_variance=1,
+                pip.thres=0.005,
                 theta_init=10,
                 estimate_theta=TRUE,
+                L.init = 1,
+                init_cor_method = c("pearson", "spearman"),
                 ...) {
 
 n=n_eff=length(y)
 p=ncol(X)
+init_cor_method <- match.arg(init_cor_method)
 
 if (is.null(Z)) {
 Z=matrix(nrow=n,ncol=0)
@@ -23,21 +29,12 @@ colnames(ZI)[1]="Intercept"
 has_covariates=TRUE
 }
 
-if (!has_covariates) {
-if (estimate_theta) {
-fit_final=MASS::glm.nb(y ~ 1,link="log")
-} else {
-fit_final=glm(y ~ 1,family=MASS::negative.binomial(theta_init,link="log"))
-}
-} else {
-if (estimate_theta) {
-fit_final=MASS::glm.nb(y ~ Z,link="log")
-} else {
-fit_final=glm(y ~ Z,family=MASS::negative.binomial(theta_init,link="log"))
-}
-}
+fit_final=greedy_nb_warm_start(
+X=X,y=y,Z=Z,L.init=L.init,theta_init=theta_init,
+estimate_theta=estimate_theta,cor_method=init_cor_method
+)
 
-alpha=coef(fit_final)
+alpha=coef(fit_final)[seq_len(ncol(ZI))]
 g=numeric(0)
 beta=rep(0,p)
 beta_prev=beta
@@ -97,6 +94,7 @@ fitX=susie_ss(
 XtX=XtX,Xty=Xty,yty=yty,
 n=n,
 L=L,
+scaled_prior_variance=scaled_prior_variance,
 estimate_residual_variance=estimate_residual_variance,
 residual_variance=residual_variance,
 max_iter = susie.iter,
@@ -121,20 +119,7 @@ CSdt=summary(fitX)$vars
 cs_indices=sort(unique(CSdt$cs[CSdt$cs > 0]))
 
 if (!length(cs_indices)) {
-if (verbose) message("No credible set detected at iteration ",iter)
-if (iter == 1L) {
-early_no_cs=TRUE
-g[iter]=0
-break
-} else {
-err=sqrt(mean((beta-beta_prev)^2))
-g[iter]=err
-if (err < max.eps && iter > min.iter) {
-if (verbose) cat("Converged!\n")
-break
-}
-next
-}
+stop("No credible set detected at iteration ", iter)
 }
 
 Alpha_filtered=fitX$alpha*0

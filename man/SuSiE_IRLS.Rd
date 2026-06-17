@@ -11,10 +11,10 @@ SuSiE_IRLS(
   family = binomial(link = "logit"),
   n_threads = 4,
   L = 10,
-  coverage = 0.3,
+  coverage = 0.95,
   estimate_residual_variance = FALSE,
   residual_variance = 1,
-  scaled_prior_variance = 0.5,
+  scaled_prior_variance = 1,
   max.iter = 15,
   max.eps = 1e-05,
   min.iter = 4,
@@ -24,32 +24,40 @@ SuSiE_IRLS(
   susie.iter = 30,
   pip.thres = 0.005,
   ridge = 1e-06,
+  logit_method = c("pg", "glm"),
+  L.init = 1,
+  init_cor_method = c("pearson", "spearman"),
   verbose = TRUE,
   ...
 )
 }
 \arguments{
-\item{X}{An n × p numeric matrix of predictors.}
+\item{X}{An n by p numeric matrix of predictors.}
 
-\item{Z}{An n × q matrix or vector of covariates. If NULL, only an intercept is used.}
+\item{Z}{An n by q matrix or vector of covariates. If NULL, only an intercept is used.}
 
 \item{y}{Response vector, or a \code{survival::Surv} object for Cox PH.}
 
 \item{family}{A GLM family object (e.g., \code{binomial(link="logit")}),
-or the string \code{"negbin"} for negative binomial. Ignored when \code{y}
-is a \code{Surv} object (Cox PH is used).}
+or the string \code{"negbin"} for negative binomial. Ignored when
+\code{y} is a \code{Surv} object (Cox PH is used).}
+
+\item{logit_method}{Method for binomial-logit outcomes. \code{"pg"} uses
+\code{Run_Binary}; \code{"glm"} uses the general GLM IRLS path.}
 
 \item{n_threads}{Integer number of threads for internal parallel blocks. Default 4.}
 
 \item{L}{Number of single effects in SuSiE. Default 10.}
 
-\item{coverage}{Credible set coverage level in SuSiE. Default 0.3.}
+\item{L.init}{Number of SNPs used in the initial low-dimensional warm start. Default 1.}
+
+\item{coverage}{Credible set coverage level in SuSiE. Default 0.95.}
 
 \item{estimate_residual_variance}{Logical for SuSiE residual variance estimation. Default FALSE.}
 
 \item{residual_variance}{Fixed residual variance when not estimated. Default 1.}
 
-\item{scaled_prior_variance}{Prior variance for SuSiE single effects. Default 0.5.}
+\item{scaled_prior_variance}{Prior variance for SuSiE single effects. Default 1.}
 
 \item{max.iter}{Maximum outer iterations. Default 15.}
 
@@ -69,6 +77,9 @@ is a \code{Surv} object (Cox PH is used).}
 
 \item{ridge}{Diagonal ridge added to the Cox information matrix for positive
 definiteness. Used only in the Cox path. Default 1e-6.}
+
+\item{init_cor_method}{Correlation used by the greedy low-dimensional
+warm start. Either \code{"pearson"} or \code{"spearman"}.}
 
 \item{verbose}{Logical flag for progress printing. Default TRUE.}
 

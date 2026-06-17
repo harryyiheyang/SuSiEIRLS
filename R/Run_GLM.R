@@ -1,12 +1,18 @@
+#' General GLM IRLS-SuSiE path
+#' @export
 Run_GLM <- function(X, y, Z = NULL,weight_cutoff=0.005,
                     family = binomial(link = "logit"),
                     L, max.iter, min.iter, max.eps, susie.iter,
-                    verbose = TRUE, n_threads = 1, coverage = 0.5,
+                    verbose = TRUE, n_threads = 1, coverage = 0.95,
                     estimate_residual_variance = FALSE,
-                    residual_variance = 1,pip.thres=0.005, ...) {
+                    residual_variance = 1,scaled_prior_variance=1,
+                    pip.thres=0.005,
+                    L.init = 1,
+                    init_cor_method = c("pearson", "spearman"), ...) {
 
 n = n_eff = length(y)
 p = ncol(X)
+init_cor_method <- match.arg(init_cor_method)
 
 # ============================================
 # Handle Z edge cases
@@ -35,17 +41,14 @@ colnames(ZI)[1] = "Intercept"
 }
 
 # ============================================
-# Initial GLM fit with covariates only
+# Greedy low-dimensional GLM warm start
 # ============================================
-if (ncol(Z) == 0) {
-# No covariates: intercept-only model
-fit_final = glm(y ~ 1, family = family)
-} else {
-# With covariates
-fit_final = glm(y ~ Z, family = family)
-}
+fit_final = greedy_glm_warm_start(
+  X = X, y = y, Z = Z, family = family, L.init = L.init,
+  cor_method = init_cor_method
+)
 
-alpha = coef(fit_final)
+alpha = coef(fit_final)[seq_len(ncol(ZI))]
 
 # Initialize tracking variables
 g = c()
@@ -97,6 +100,7 @@ yty = sum(tilde_y^2)
 # Run SuSiE on projected data
 fitX <- susie_ss(
   XtX = XtX, Xty = Xty, yty = yty, n = max(n/2,n_eff), L = L,
+  scaled_prior_variance = scaled_prior_variance,
   estimate_residual_variance = estimate_residual_variance,
   residual_variance = residual_variance,
   max_iter = susie.iter,
@@ -114,8 +118,7 @@ CSdt <- summary(fitX)$vars
 cs_indices <- unique(CSdt$cs[CSdt$cs > 0])
 cs_indices=sort(cs_indices)
 if(length(cs_indices) == 0) {
-warning("No credible set detected at iteration ", iter)
-break
+stop("No credible set detected at iteration ", iter)
 }
 Alpha_filtered <- fitX$alpha * 0
 for(i in cs_indices) {
@@ -175,7 +178,7 @@ if (verbose) {
 plot(g, type = "o", col = "black", pch = 16,
      xlab = "Iteration",
      ylab = "Max Parameter Change",
-     main = "Convergence Trace (Max |Δ| in alpha and beta)")
+     main = "Convergence Trace (Max |Delta| in alpha and beta)")
 for (i in seq_along(g)) {
   text(x = i, y = g[i],
        labels = formatC(g[i], format = "e", digits = 1),

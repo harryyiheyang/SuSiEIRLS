@@ -1,201 +1,156 @@
-library(CppMatrix)
-library(susieR)
-library(devtools)
-library(MASS)
-library(ncvreg)
-library(glmnet)
-library(survival)
-library(logisticsusie)
-options(bitmapType = "cairo")
-load_all("~/SuSiEGLM/")
+suppressPackageStartupMessages({
+  library(devtools)
+  library(MASS)
+  library(survival)
+  library(susieR)
+  library(logisticsusie)
+})
 
-# ----------------------------
-# 工具函数：协方差、索引映射
-# ----------------------------
-ARcov <- function(p, rho){
-  s <- rho ^ (0:(p-1))
-  toeplitz(s)
-}
-CScov <- function(p, rho){
-  diag(p)*(1-rho) + matrix(rho, p, p)
+load_all(".", quiet = TRUE)
+source("example/otherfunction.R")
+
+ar_cov <- function(p, rho) {
+  toeplitz(rho ^ (0:(p - 1)))
 }
 
-selected_from_main_index <- function(main_index, p, x_prefix = "SNP"){
-  if (is.null(main_index) || nrow(main_index) == 0) return(integer(0))
-  if ("Index" %in% names(main_index)) {
-    idx <- as.integer(main_index$Index)
-    idx[!is.na(idx) & idx >= 1 & idx <= p]
-  } else if ("Variable" %in% names(main_index)) {
-    v <- as.character(main_index$Variable)
-    as.integer(gsub(paste0("^", x_prefix), "", v))
-  } else integer(0)
-}
-
-susie_to_main_index <- function(fit_susie, X, p, coverage = 0.95, min_abs_cor = 0.1) {
-  class(fit_susie) <- c("susie", "list")
-  cs_out <- susie_get_cs(fit_susie, X = X, coverage = coverage, min_abs_cor = min_abs_cor)
-  cs_list <- lapply(cs_out$cs, function(idx) idx[idx <= p])
-  cs_list <- cs_list[sapply(cs_list, length) > 0]
-  if (length(cs_list) == 0) return(data.frame())
-  main_index <- data.frame(
-    Index = unlist(cs_list),
-    Variable = colnames(X)[unlist(cs_list)],
-    CS = rep(paste0("Main_CS", 1:length(cs_list)),
-             times = sapply(cs_list, length)),
-    stringsAsFactors = FALSE
-  )
-  main_index$PIP <- fit_susie$pip[main_index$Index]
-  main_index <- main_index[order(main_index$CS, main_index$Index), ]
-  row.names(main_index) <- NULL
-  return(main_index)
-}
-
-# ----------------------------
-# 单变量 SER（Cox）给 IBSS 用
-# Wakefield 近似 + LRT 修正，带 offset(e)
-# ----------------------------
 surv_uni_fun <- function(x, y, e, prior_variance,
                          estimate_intercept = 0, ...) {
-  v0   <- prior_variance
-  fit  <- coxph(y ~ x + offset(e))
-  out  <- summary(fit)$coefficients
+  v0 <- prior_variance
+  fit <- survival::coxph(y ~ x + offset(e), ties = "breslow")
+  out <- summary(fit)$coefficients
   bhat <- out[1, "coef"]
-  s    <- out[1, "se(coef)"]
-  z    <- bhat / s
-  lbf  <- log(s^2 / (v0 + s^2)) / 2 + z^2 / 2 * v0 / (v0 + s^2)
-  lbf  <- lbf - z^2 / 2 + summary(fit)$logtest["test"] / 2
-  v1   <- 1 / (1 / v0 + 1 / s^2)
-  mu1  <- v1 * bhat / s^2
+  s <- out[1, "se(coef)"]
+  if (!is.finite(bhat) || !is.finite(s) || s <= 0) {
+    return(list(mu = 0, var = v0, lbf = -Inf,
+                prior_variance = v0, intercept = 0))
+  }
+  z <- bhat / s
+  lbf <- 0.5 * log(s^2 / (v0 + s^2)) +
+    0.5 * z^2 * v0 / (v0 + s^2)
+  lbf <- lbf - 0.5 * z^2 + 0.5 * summary(fit)$logtest["test"]
+  v1 <- 1 / (1 / v0 + 1 / s^2)
+  mu1 <- v1 * bhat / s^2
   list(mu = mu1, var = v1, lbf = lbf,
-       prior_variance = mu1^2 + v1,
-       intercept = 0)
+       prior_variance = mu1^2 + v1, intercept = 0)
 }
 
-# ----------------------------
-# 你的评估/其它函数
-# ----------------------------
-source("~/SuSiEGLM/example/main_tptn.R")
-source("~/SuSiEGLM/example/otherfunction.R")
+simulate_cox_data <- function(seed, n = 1000, p = 10, q = 5,
+                              total_h2 = 0.3, target_censor = 0.3,
+                              base_hazard = 0.05) {
+  set.seed(seed)
+  X <- MASS::mvrnorm(n = n, mu = rep(0, p), Sigma = ar_cov(p, 0.5))
+  X <- scale(X)
+  colnames(X) <- paste0("SNP", seq_len(p))
 
-n  <- 500
-p  <- 10
-cens_rate <- 0.2   # 目标删失比例（通过删失分布尺度近似控制）
+  Z <- scale(matrix(rnorm(n * q), n, q))
+  colnames(Z) <- paste0("Z", seq_len(q))
 
-Main_TP <- Main_TN <- TIME <- matrix(0, 100, 4)
+  true_idx <- c(2, 5, 8)
+  beta <- rep(0, p)
+  beta[true_idx] <- c(1, -1, 1)
+  alpha <- rnorm(q)
+  eta_parts <- make_eta_components(
+    X = X, Z = Z, beta = beta, alpha = alpha,
+    total_h2 = total_h2, z_to_x_ratio = 2
+  )
+  eta <- scale_cox_liability_h2(eta_parts$eta, h2 = total_h2)
 
-for(iter in 1:100){
-  # --------------------------------------
-  # 生成 X, Z, beta, alpha, eta
-  # --------------------------------------
-  R  <- ARcov(p, 0.5)
-  X  <- mvrnorm(n = n, mu = runif(p, 0, 1), R)
-  X  <- scale(X, center = TRUE, scale = FALSE)
-  Z  <- mvrnorm(n = n, mu = runif(5, 0, 1), diag(5))
-  colnames(Z) <- paste0("UKBB", 1:5)
+  Ttrue <- -log(runif(n)) / (base_hazard * exp(eta))
+  censor_rate <- exp(stats::uniroot(
+    function(log_rate) mean(1 - exp(-exp(log_rate) * Ttrue)) - target_censor,
+    interval = c(-20, 20)
+  )$root)
+  Ctime <- rexp(n, rate = censor_rate)
+  time <- pmin(Ttrue, Ctime)
+  status <- as.integer(Ttrue <= Ctime)
 
-  alpha0 <- rnorm(5, 0, 1/sqrt(5))
-  beta0  <- rep(0, p)
-  ind    <- sort(sample(p, 3))
-  beta0[ind] <- 0.3
+  list(X = X, Z = Z, y = survival::Surv(time, status),
+       time = time, status = status, true_idx = true_idx)
+}
 
-  eta <- matrixVectorMultiply(Z, alpha0) + matrixVectorMultiply(X, beta0)
+fit_irls_cox_once <- function(dat, L = 3, L.init = 1) {
+  quiet_eval(SuSiE_IRLS(
+    X = dat$X, Z = dat$Z, y = dat$y,
+    L = L,
+    L.init = L.init,
+    max.iter = 5,
+    min.iter = 1,
+    max.eps = 1e-4,
+    susie.iter = 100,
+    coverage = 0.95,
+    n_threads = 2,
+    verbose = FALSE
+  ))
+}
 
-  # --------------------------------------
-  # Cox 生存模拟：
-  # 指数基线，hazard = lambda0 * exp(eta)
-  # 真实生存时间 T ~ Exp(rate = lambda0 * exp(eta))
-  # 独立删失 C ~ Exp(rate = cens_scale)；observed = min(T, C)
-  # --------------------------------------
-  lambda0 <- 0.1
-  Ttrue   <- rexp(n, rate = lambda0 * exp(eta))
-  # 调删失尺度使删失比例 ~ cens_rate
-  cens_scale <- lambda0 * exp(mean(eta)) * cens_rate / (1 - cens_rate)
-  Ctime   <- rexp(n, rate = cens_scale)
-  time    <- pmin(Ttrue, Ctime)
-  status  <- as.integer(Ttrue <= Ctime)
-  y_surv  <- Surv(time, status)
+run_cox_benchmark <- function(n_rep = 10, n = 1000, p = 10,
+                              seed0 = 1, L = 3, L.init = 1) {
+  rows <- vector("list", n_rep * 2L)
+  row_id <- 1L
 
-  # --------------------------------------
-  # 1) SuSiE_IRLS (Cox)：y 传 Surv 对象自动派发
-  # --------------------------------------
-  t1 <- Sys.time()
-  fit_SuSiEGLM08 <- tryCatch({
-    SuSiE_IRLS(
-      X = X, Z = Z, y = y_surv, L = 5, n_threads = 4,
-      estimate_residual_variance = FALSE,
-      max.iter = 15, verbose = TRUE, susie.iter = 500
+  for (iter in seq_len(n_rep)) {
+    dat <- simulate_cox_data(seed = seed0 + iter - 1L, n = n, p = p)
+
+    t1 <- Sys.time()
+    fit_irls <- tryCatch(
+      fit_irls_cox_once(dat, L = L, L.init = L.init),
+      error = function(e) e
     )
-  }, error = function(e) {
-    message("❌ SuSiEGLM08 failed at iteration ", iter, ": ", e$message)
-    NULL
-  })
-  t2 <- Sys.time()
-  t_SuSiEGLM08 <- difftime(t2, t1, units = "secs")
+    elapsed <- as.numeric(difftime(Sys.time(), t1, units = "secs"))
+    if (inherits(fit_irls, "error")) {
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "SuSiE_IRLS_cox",
+        power = NA_real_, false_cs = NA_real_, n_cs = NA_integer_,
+        time_sec = elapsed, error = fit_irls$message
+      )
+    } else {
+      eval <- cs_contains_truth(fit_irls$main_index, dat$true_idx)
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "SuSiE_IRLS_cox",
+        power = eval$power, false_cs = eval$false_cs, n_cs = eval$n_cs,
+        time_sec = elapsed, error = NA_character_
+      )
+    }
+    row_id <- row_id + 1L
 
-  # --------------------------------------
-  # 2) glmnet：Cox family
-  # --------------------------------------
-  t1 <- Sys.time()
-  fit_lasso_cv <- cv.glmnet(
-    x = cbind(X, Z),
-    y = y_surv,
-    family = "cox"
-  )
-  t2 <- Sys.time()
-  t_lasso_cv <- difftime(t2, t1, units = "secs")
-
-  # --------------------------------------
-  # 3) ncvreg：Cox family
-  # --------------------------------------
-  t1 <- Sys.time()
-  fit_mcp_cv <- cv.ncvsurv(
-    X = cbind(X, Z),
-    y = y_surv,
-    penalty = "MCP"
-  )
-  t2 <- Sys.time()
-  t_mcp_cv <- difftime(t2, t1, units = "secs")
-
-  # --------------------------------------
-  # 4) IBSS（官方 SER）：Cox 的单变量 SER
-  # --------------------------------------
-  t1 <- Sys.time()
-  fit_ibss <- ibss_from_ser(
-    X = cbind(X, Z), y = y_surv, L = 10,
-    tol = 1e-4, maxit = 100, num_cores = 8,
-    ser_function = ser_from_univariate(surv_uni_fun)
-  )
-  out_ibss <- susie_to_main_index(
-    fit_ibss, X = cbind(X, Z), p = p,
-    coverage = 0.95, min_abs_cor = 0.1
-  )
-  t2 <- Sys.time()
-  t_ibss <- as.numeric(difftime(t2, t1, units = "secs"))
-
-  # --------------------------------------
-  # 指标计算
-  # --------------------------------------
-  if (is.null(out_ibss) || nrow(out_ibss) == 0) {
-    tptn_ibss <- list(tp = 0, tn = 1)
-  } else {
-    tptn_ibss <- main_tptn(true_main_index = ind, main_index = out_ibss)
-  }
-  if (is.null(fit_SuSiEGLM08)) {
-    tptn_SuSiEGLM08 <- list(tp = 0, tn = 1)
-  } else {
-    tptn_SuSiEGLM08 <- main_tptn(true_main_index = ind, main_index = fit_SuSiEGLM08$main_index)
+    t1 <- Sys.time()
+    fit_ibss <- tryCatch(
+      quiet_eval(logisticsusie::ibss_from_ser(
+        X = cbind(dat$X, dat$Z), y = dat$y, L = L + ncol(dat$Z),
+        tol = 1e-4, maxit = 100, num_cores = 1,
+        ser_function = logisticsusie::ser_from_univariate(surv_uni_fun)
+      )),
+      error = function(e) e
+    )
+    elapsed <- as.numeric(difftime(Sys.time(), t1, units = "secs"))
+    if (inherits(fit_ibss, "error")) {
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "IBSS_cox_augmented_Z",
+        power = NA_real_, false_cs = NA_real_, n_cs = NA_integer_,
+        time_sec = elapsed, error = fit_ibss$message
+      )
+    } else {
+      ibss_index <- susie_to_main_index_x_only(
+        fit_ibss, X_aug = cbind(dat$X, dat$Z), p = ncol(dat$X),
+        coverage = 0.95, min_abs_cor = 0.1
+      )
+      eval <- cs_contains_truth(ibss_index, dat$true_idx)
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "IBSS_cox_augmented_Z",
+        power = eval$power, false_cs = eval$false_cs, n_cs = eval$n_cs,
+        time_sec = elapsed, error = NA_character_
+      )
+    }
+    row_id <- row_id + 1L
+    message("finished replicate ", iter, "/", n_rep)
   }
 
-  # glmnet cox: 无截距，beta 直接对应 cbind(X,Z) 各列，取前 p 列
-  tptn_lasso_cv  <- tptn_evaulate(true_main_index = ind,
-                                  hat_beta = fit_lasso_cv$glmnet.fit$beta[1:p, which(fit_lasso_cv$lambda == fit_lasso_cv$lambda.1se)])
-  # ncvsurv: cox 无截距，beta 各行对应 cbind(X,Z) 各列，取前 p 行
-  tptn_mcp_cv    <- tptn_evaulate(true_main_index = ind,
-                                  hat_beta = fit_mcp_cv$fit$beta[1:p, which.min(fit_mcp_cv$cve)])
+  per_run <- do.call(rbind, rows)
+  list(per_run = per_run, summary = benchmark_summary(per_run))
+}
 
-  TIME[iter,]    <- c(t_SuSiEGLM08, t_lasso_cv, t_mcp_cv, t_ibss)
-  Main_TP[iter,] <- c(tptn_SuSiEGLM08$tp, tptn_lasso_cv$tp, tptn_mcp_cv$tp, tptn_ibss$tp)
-  Main_TN[iter,] <- c(tptn_SuSiEGLM08$tn, tptn_lasso_cv$tn, tptn_mcp_cv$tn, tptn_ibss$tn)
-
-  if(iter %% 10 == 0) print(iter)
+if (sys.nframe() == 0L) {
+  bench <- run_cox_benchmark(n_rep = 10, n = 1000, p = 10, L.init = 1)
+  print(bench$per_run)
+  print(bench$summary)
 }
