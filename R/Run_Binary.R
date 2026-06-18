@@ -46,7 +46,7 @@ fit_final = greedy_glm_warm_start(
 X = X, y = y, Z = Z, family = family, L.init = L.init,
 cor_method = init_cor_method
 )
-alpha = coef(fit_final)[seq_len(ncol(ZI))]
+alpha = clean_coef(coef(fit_final)[seq_len(ncol(ZI))])
 
 # Initialize tracking variables
 g = c()
@@ -77,16 +77,16 @@ tilde_X   <- X  * W_invsqrt
 tilde_Z   <- ZI * W_invsqrt
 
 # Projection: remove covariate effects
-ZtZ = matrixMultiply(t(tilde_Z), tilde_Z)
-Zinv = solve(ZtZ)
-Zinv = matrixMultiply(Zinv, t(tilde_Z))
+ZtZ = matrixMultiply(tilde_Z, tilde_Z, transA = TRUE)
+Zinv = solve_with_ridge(ZtZ)
+Zinv = matrixMultiply(Zinv, tilde_Z, transB = TRUE)
 
 tilde_y = tilde_y - matrixVectorMultiply(tilde_Z, matrixVectorMultiply(Zinv, tilde_y))
 tilde_X = tilde_X - ProjectRes(A = tilde_X, B = tilde_Z, n_threads = n_threads)
 
 # Compute sufficient statistics for SuSiE
 XtX = blockwise_crossprod(tilde_X,n_threads = n_threads)
-Xty = matrixVectorMultiply(t(tilde_X), tilde_y)
+Xty = as.numeric(matrixMultiply(tilde_X, matrix(tilde_y, ncol = 1), transA = TRUE))
 yty = sum(tilde_y^2)
 
 # Run SuSiE on projected data
@@ -100,7 +100,7 @@ estimate_prior_method = "EM",
 coverage = coverage,...
 )
 
-beta = coef(fitX)[-1]
+beta = clean_coef(coef(fitX)[-1])
 beta.cs=group.pip.filter(pip.summary=summary(fitX)$var,xQTL.cred.thres=coverage,xQTL.pip.thres=pip.thres)
 pip.alive=beta.cs$ind.keep
 beta[-pip.alive]=0
@@ -119,7 +119,7 @@ Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i]
 }
 # Align within-CS SNP directions while preserving PIP weights.
 Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-XCS <- matrixMultiply(X, t(as.matrix(Alpha_filtered)))
+XCS <- matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
 XCS <- XCS[, cs_indices, drop = FALSE]
 if(is.null(dim(XCS))) {
 XCS <- matrix(XCS, ncol = 1)
@@ -142,7 +142,7 @@ Data = as.data.frame(Data)
 fit_final = glm(y ~ ., data = Data, family = family)
 
 # Extract covariate coefficients (intercept + Z)
-alpha = coef(fit_final)[1:(ncol(ZI))]
+alpha = clean_coef(coef(fit_final)[1:(ncol(ZI))])
 
 # Check convergence
 err = max(sqrt(mean((beta - beta_prev)^2)),

@@ -47,6 +47,56 @@ quiet_eval <- function(expr) {
   value
 }
 
+standardize_eta_covariate <- function(eta) {
+  eta <- as.numeric(eta)
+  if (!any(is.finite(eta)) || stats::var(eta, na.rm = TRUE) <= 0) {
+    stop("Covariate-only eta has zero or invalid variance.")
+  }
+  as.numeric(scale(eta))
+}
+
+fit_logit_eta_from_z <- function(y, Z) {
+  Zdf <- as.data.frame(Z)
+  colnames(Zdf) <- make.names(colnames(Zdf), unique = TRUE)
+  dat <- data.frame(y = y, Zdf, check.names = FALSE)
+  fit <- stats::glm(y ~ ., data = dat, family = stats::binomial())
+  eta <- as.numeric(as.matrix(Zdf) %*% stats::coef(fit)[-1L])
+  list(eta = standardize_eta_covariate(eta), fit = fit)
+}
+
+fit_cox_eta_from_z <- function(y, Z) {
+  Zdf <- as.data.frame(Z)
+  colnames(Zdf) <- make.names(colnames(Zdf), unique = TRUE)
+  dat <- data.frame(
+    time = as.numeric(y[, 1]),
+    status = as.integer(y[, 2]),
+    Zdf,
+    check.names = FALSE
+  )
+  fit <- survival::coxph(survival::Surv(time, status) ~ ., data = dat)
+  eta <- as.numeric(stats::predict(fit, type = "lp"))
+  list(eta = standardize_eta_covariate(eta), fit = fit)
+}
+
+fit_nb_eta_from_z <- function(y, Z) {
+  Zdf <- as.data.frame(Z)
+  colnames(Zdf) <- make.names(colnames(Zdf), unique = TRUE)
+  dat <- data.frame(y = y, Zdf, check.names = FALSE)
+  fit <- MASS::glm.nb(y ~ ., data = dat, link = "log")
+  eta <- as.numeric(as.matrix(Zdf) %*% stats::coef(fit)[-1L])
+  list(eta = standardize_eta_covariate(eta), theta = as.numeric(fit$theta),
+       fit = fit)
+}
+
+glmnet_selection_eval <- function(beta_hat, true_idx, p) {
+  selected <- which(is.finite(beta_hat[seq_len(p)]) & beta_hat[seq_len(p)] != 0)
+  list(
+    power = mean(true_idx %in% selected),
+    false_cs = if (length(selected)) mean(!(selected %in% true_idx)) else 0,
+    n_cs = NA_integer_
+  )
+}
+
 susie_to_main_index_x_only <- function(fit_susie, X_aug, p, coverage = 0.95,
                                        min_abs_cor = 0.1) {
   class(fit_susie) <- c("susie", "list")
@@ -89,19 +139,23 @@ cs_contains_truth <- function(main_index, true_idx) {
 }
 
 benchmark_summary <- function(per_run) {
-  summary <- aggregate(
-    cbind(power, false_cs, n_cs, time_sec) ~ method,
-    data = per_run,
-    FUN = function(x) mean(x, na.rm = TRUE)
-  )
-  names(summary) <- c("method", "mean_power", "mean_false_cs",
-                      "mean_n_cs", "mean_time_sec")
-  failed <- aggregate(
-    is.na(error) ~ method,
-    data = per_run,
-    FUN = function(x) sum(!x)
-  )
-  names(failed)[2] <- "n_failed"
-  merge(summary, failed, by = "method", all.x = TRUE)
+  mean_or_na <- function(x) {
+    x <- suppressWarnings(as.numeric(x))
+    ok <- is.finite(x)
+    if (!any(ok)) return(NA_real_)
+    mean(x[ok])
+  }
+  rows <- lapply(split(per_run, per_run$method), function(x) {
+    data.frame(
+      method = x$method[1],
+      mean_power = mean_or_na(x$power),
+      mean_false_cs = mean_or_na(x$false_cs),
+      mean_n_cs = mean_or_na(x$n_cs),
+      mean_time_sec = mean_or_na(x$time_sec),
+      n_failed = sum(!is.na(x$error)),
+      row.names = NULL
+    )
+  })
+  do.call(rbind, rows)
 }
 

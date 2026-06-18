@@ -34,7 +34,7 @@ X=X,y=y,Z=Z,L.init=L.init,theta_init=theta_init,
 estimate_theta=estimate_theta,cor_method=init_cor_method
 )
 
-alpha=coef(fit_final)[seq_len(ncol(ZI))]
+alpha=clean_coef(coef(fit_final)[seq_len(ncol(ZI))])
 g=numeric(0)
 beta=rep(0,p)
 beta_prev=beta
@@ -72,7 +72,11 @@ pseudo_response[bad]=0
 
 W_diag=robust_weight(W_diag,cutoff=weight_cutoff)
 
-n_eff=(sum(W_diag))^2/sum(W_diag^2)
+weight_denom=sum(W_diag^2)
+if (!is.finite(weight_denom) || weight_denom <= 0) {
+stop("All working weights are zero at iteration ",iter)
+}
+n_eff=(sum(W_diag))^2/weight_denom
 
 phi0=summary(fit_final)$dispersion
 W_invsqrt=sqrt(W_diag/phi0)
@@ -81,13 +85,13 @@ tilde_y=pseudo_response*W_invsqrt
 tilde_X=X*W_invsqrt
 tilde_Z=ZI*W_invsqrt
 
-ZtZ =crossprod(tilde_Z)+diag(1e-8,ncol(tilde_Z))
-ZinvZt=solve(ZtZ,t(tilde_Z))
+ZtZ =matrixMultiply(tilde_Z,tilde_Z,transA=TRUE)+diag(1e-8,ncol(tilde_Z))
+ZinvZt=matrixMultiply(solve_with_ridge(ZtZ),tilde_Z,transB=TRUE)
 tilde_y=as.numeric(tilde_y-matrixVectorMultiply(tilde_Z,matrixVectorMultiply(ZinvZt,tilde_y)))
 tilde_X=tilde_X-ProjectRes(A=tilde_X,B=tilde_Z,n_threads=n_threads)
 
 XtX=blockwise_crossprod(tilde_X,n_threads=n_threads)
-Xty=as.numeric(crossprod(tilde_X,tilde_y))
+Xty=as.numeric(matrixMultiply(tilde_X,matrix(tilde_y,ncol=1),transA=TRUE))
 yty=sum(tilde_y^2)
 
 fitX=susie_ss(
@@ -104,9 +108,9 @@ coverage=coverage,...
 
 bcoef=tryCatch(as.numeric(susieR::coef.susie(fitX)),error=function(e) numeric(0))
 if (length(bcoef) == p+1) {
-beta=bcoef[-1]
+beta=clean_coef(bcoef[-1])
 } else if (length(bcoef) == p) {
-beta=bcoef
+beta=clean_coef(bcoef)
 } else {
 beta=beta_prev
 }
@@ -129,7 +133,7 @@ Alpha_filtered[i_cs,vars_in_cs_i]=fitX$alpha[i_cs,vars_in_cs_i]
 }
 # Align within-CS SNP directions while preserving PIP weights.
 Alpha_filtered=Alpha_filtered*sign(fitX$mu)
-XCS=X %*% t(as.matrix(Alpha_filtered))
+XCS=matrixMultiply(X,as.matrix(Alpha_filtered),transB=TRUE)
 XCS=XCS[,cs_indices,drop=FALSE]
 if (is.null(dim(XCS))) XCS=matrix(XCS,ncol=1)
 colnames(XCS)=paste0("Main_CS",cs_indices)
@@ -155,7 +159,7 @@ fit_final=glm(as.formula(formula_str),data=Data,
              family=MASS::negative.binomial(theta,link="log"))
 }
 
-alpha=coef(fit_final)[seq_len(ncol(ZI))]
+alpha=clean_coef(coef(fit_final)[seq_len(ncol(ZI))])
 
 if (has_covariates) {
 err=max(

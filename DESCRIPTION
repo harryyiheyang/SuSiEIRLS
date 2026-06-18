@@ -18,10 +18,8 @@ Imports:
     MASS,
     graphics,
     susieR,
-    scam,
     survival,
     CppMatrix,
-    Matrix,
     stats,
     Rcpp,
     SuSiE4I

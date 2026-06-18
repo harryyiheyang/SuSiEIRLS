@@ -1,2 +1,13 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^\.git
+^\.gitignore$
+^\.Rhistory$
+^\.RData$
+^\.Ruserdata$
+^tmp$
+^\.\.Rcheck$
+^src/.*\.o$
+^src/.*\.so$
+^src/.*\.dll$
+^src/symbols\.rds$

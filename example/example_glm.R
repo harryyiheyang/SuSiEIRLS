@@ -3,6 +3,7 @@ suppressPackageStartupMessages({
   library(MASS)
   library(susieR)
   library(logisticsusie)
+  library(glmnet)
 })
 
 load_all(".", quiet = TRUE)
@@ -75,9 +76,21 @@ fit_irls_logit_once <- function(dat, L = 3, L.init = 1) {
   ))
 }
 
+fit_glmnet_logit_once <- function(dat) {
+  p <- ncol(dat$X)
+  q <- ncol(dat$Z)
+  X_aug <- cbind(dat$X, dat$Z)
+  penalty.factor <- c(rep(1, p), rep(0, q))
+  fit <- glmnet::cv.glmnet(
+    x = X_aug, y = dat$y, family = "binomial", alpha = 1,
+    penalty.factor = penalty.factor, standardize = FALSE, nfolds = 5
+  )
+  as.numeric(stats::coef(fit, s = "lambda.1se"))[-1L]
+}
+
 run_logit_benchmark <- function(n_rep = 10, n = 1000, p = 10,
                                 seed0 = 1, L = 3, L.init = 1) {
-  rows <- vector("list", n_rep * 2L)
+  rows <- vector("list", n_rep * 4L)
   row_id <- 1L
 
   for (iter in seq_len(n_rep)) {
@@ -106,29 +119,80 @@ run_logit_benchmark <- function(n_rep = 10, n = 1000, p = 10,
     row_id <- row_id + 1L
 
     t1 <- Sys.time()
-    fit_ibss <- tryCatch(
+    beta_glmnet <- tryCatch(fit_glmnet_logit_once(dat), error = function(e) e)
+    elapsed <- as.numeric(difftime(Sys.time(), t1, units = "secs"))
+    if (inherits(beta_glmnet, "error")) {
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "glmnet_logit",
+        power = NA_real_, false_cs = NA_real_, n_cs = NA_integer_,
+        time_sec = elapsed, error = beta_glmnet$message
+      )
+    } else {
+      eval <- glmnet_selection_eval(beta_glmnet, dat$true_idx, ncol(dat$X))
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "glmnet_logit",
+        power = eval$power, false_cs = eval$false_cs, n_cs = eval$n_cs,
+        time_sec = elapsed, error = NA_character_
+      )
+    }
+    row_id <- row_id + 1L
+
+    t1 <- Sys.time()
+    X_aug_Z <- cbind(dat$X, dat$Z)
+    fit_ibss_Z <- tryCatch(
       quiet_eval(logisticsusie::ibss_from_ser(
-        X = cbind(dat$X, dat$Z), y = dat$y, L = L + ncol(dat$Z),
+        X = X_aug_Z, y = dat$y, L = L + ncol(dat$Z),
         tol = 1e-4, maxit = 100, num_cores = 1,
         ser_function = logisticsusie::ser_from_univariate(logit_uni_fun)
       )),
       error = function(e) e
     )
     elapsed <- as.numeric(difftime(Sys.time(), t1, units = "secs"))
-    if (inherits(fit_ibss, "error")) {
+    if (inherits(fit_ibss_Z, "error")) {
       rows[[row_id]] <- data.frame(
-        iter = iter, method = "IBSS_logit_augmented_Z",
+        iter = iter, method = "IBSS_logit_Z_plus_X",
         power = NA_real_, false_cs = NA_real_, n_cs = NA_integer_,
-        time_sec = elapsed, error = fit_ibss$message
+        time_sec = elapsed, error = fit_ibss_Z$message
       )
     } else {
       ibss_index <- susie_to_main_index_x_only(
-        fit_ibss, X_aug = cbind(dat$X, dat$Z), p = ncol(dat$X),
+        fit_ibss_Z, X_aug = X_aug_Z, p = ncol(dat$X),
         coverage = 0.95, min_abs_cor = 0.1
       )
       eval <- cs_contains_truth(ibss_index, dat$true_idx)
       rows[[row_id]] <- data.frame(
-        iter = iter, method = "IBSS_logit_augmented_Z",
+        iter = iter, method = "IBSS_logit_Z_plus_X",
+        power = eval$power, false_cs = eval$false_cs, n_cs = eval$n_cs,
+        time_sec = elapsed, error = NA_character_
+      )
+    }
+    row_id <- row_id + 1L
+
+    t1 <- Sys.time()
+    fit_ibss_eta <- tryCatch({
+      eta_fit <- fit_logit_eta_from_z(y = dat$y, Z = dat$Z)
+      X_aug_eta <- cbind(dat$X, eta_Z = eta_fit$eta)
+      quiet_eval(logisticsusie::ibss_from_ser(
+        X = X_aug_eta, y = dat$y, L = L + 1L,
+        tol = 1e-4, maxit = 100, num_cores = 1,
+        ser_function = logisticsusie::ser_from_univariate(logit_uni_fun)
+      ))
+    }, error = function(e) e)
+    elapsed <- as.numeric(difftime(Sys.time(), t1, units = "secs"))
+    if (inherits(fit_ibss_eta, "error")) {
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "IBSS_logit_eta_plus_X",
+        power = NA_real_, false_cs = NA_real_, n_cs = NA_integer_,
+        time_sec = elapsed, error = fit_ibss_eta$message
+      )
+    } else {
+      ibss_index <- susie_to_main_index_x_only(
+        fit_ibss_eta, X_aug = X_aug_eta, p = ncol(dat$X),
+        coverage = 0.95, min_abs_cor = 0.1
+      )
+      eval <- cs_contains_truth(ibss_index, dat$true_idx)
+      rows[[row_id]] <- data.frame(
+        iter = iter, method = "IBSS_logit_eta_plus_X",
         power = eval$power, false_cs = eval$false_cs, n_cs = eval$n_cs,
         time_sec = elapsed, error = NA_character_
       )

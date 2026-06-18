@@ -125,18 +125,42 @@ B=cbind(1,B)
 }
 BtB = blockwise_crossprod(X=B,n_threads=n_threads)
 BtA = blockwise_crossprod(B,A,n_threads)
-ProjPart = matrixMultiply(B,(solve(BtB)%*%(BtA)))
+ProjPart = matrixMultiply(B, solve_with_ridge(BtB, BtA))
 return(ProjPart)
+}
+
+solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
+  A <- as.matrix(A)
+  out <- tryCatch(
+    {
+      if (is.null(B)) CppMatrix::matrixInverse(A) else CppMatrix::matrixSolve(A, as.matrix(B))
+    },
+    error = function(e) {
+      A2 <- A
+      diag(A2) <- diag(A2) + ridge
+      if (is.null(B)) CppMatrix::matrixInverse(A2) else CppMatrix::matrixSolve(A2, as.matrix(B))
+    }
+  )
+  out
+}
+
+clean_coef <- function(x) {
+  x <- as.numeric(x)
+  x[!is.finite(x)] <- 0
+  x
 }
 
 safe_add_p <- function(idx, Coefmat) {
   if (is.null(idx)) return(NULL)
   if (is.data.frame(idx) && nrow(idx) == 0) return(idx)
   if (!("CS" %in% names(idx))) return(idx)
+  if (is.null(Coefmat) || is.null(dim(Coefmat))) return(idx)
   cs <- as.character(idx$CS)
   pos <- match(cs, rownames(Coefmat))
   p   <- rep(NA_real_, length(cs))
-  p[!is.na(pos)] <- Coefmat[pos[!is.na(pos)], 4]
+  if (ncol(Coefmat) >= 4) {
+    p[!is.na(pos)] <- Coefmat[pos[!is.na(pos)], 4]
+  }
 
   idx$Pvalue <- p
   idx
@@ -145,13 +169,16 @@ safe_add_p <- function(idx, Coefmat) {
 ################################################################################
 robust_weight <- function(w, cutoff = 0.01) {
 n <- length(w)
-if (n == 0L || all(is.na(w))) return(w)
+if (n == 0L || all(is.na(w))) return(rep(0, n))
 w <- as.numeric(w)
-w[!is.finite(w)] <- NA
+w[!is.finite(w) | w < 0] <- NA
 w_na <- is.na(w)
 
 n_eff <- sum(!w_na)
-if (n_eff <= 1L) return(w)
+if (n_eff <= 1L) {
+  w[w_na] <- 0
+  return(w)
+}
 
 if (n_eff < 1 / cutoff) {
 lo <- min(w, na.rm = TRUE)
@@ -161,7 +188,7 @@ lo <- quantile(w, probs = cutoff, na.rm = TRUE, names = FALSE, type = 7)
 hi <- quantile(w, probs = 1 - cutoff, na.rm = TRUE, names = FALSE, type = 7)
 }
 w_trim <- pmin(pmax(w, lo), hi)
-w[w_na] <- NA
+w_trim[w_na] <- 0
 w_trim
 }
 
@@ -368,88 +395,10 @@ group.pip.filter=function(pip.summary,xQTL.cred.thres=0.95,xQTL.pip.thres=0.1){
     cs[which(cs==-1)]=0
   }else{
     ind.keep=NULL
-    cs=pip.summary$cs.pip*0
-    cs.pip=pip.summary$cs.pip*0
+    cs=pip.summary$cs*0
+    cs.pip=pip.summary$variable_prob*0
   }
   return(list(ind.keep=pip.summary$variable[ind.keep],cs=cs,cs.pip=cs.pip,result=pip.summary))
-}
-
-
-get_category_probs <- function(fit_clm, link = NULL) {
-  n <- fit_clm$n
-  J <- length(fit_clm$y.levels)
-  K <- J - 1  # Number of thresholds = J - 1
-
-  if(J < 2) {
-    stop("Need at least 2 categories for ordinal model")
-  }
-
-  # Determine link function
-  if(is.null(link)) {
-    # Try to extract from fit_clm object
-    if(!is.null(fit_clm$link)) {
-      link <- fit_clm$link
-    } else {
-      link <- "logit"  # default
-      warning("Link function not specified, using 'logit' as default")
-    }
-  }
-
-  # Validate link function
-  link <- match.arg(link, c("logit", "probit", "cloglog"))
-
-  # Select appropriate CDF function
-  F_link <- switch(link,
-                   "logit" = plogis,
-                   "probit" = pnorm,
-                   "cloglog" = function(x) 1 - exp(-exp(x))
-  )
-
-  alpha <- as.numeric(fit_clm$alpha)
-  if(length(alpha) != K) {
-    stop(sprintf("Expected %d thresholds but got %d", K, length(alpha)))
-  }
-
-  if(length(fit_clm$beta) > 0) {
-    formula_terms <- delete.response(terms(fit_clm))
-    X_fit <- model.matrix(formula_terms, data = fit_clm$model)
-    if("(Intercept)" %in% colnames(X_fit)) {
-      X_fit <- X_fit[, -1, drop = FALSE]
-    }
-    if(ncol(X_fit) != length(fit_clm$beta)) {
-      stop(sprintf("Dimension mismatch: X has %d columns but beta has %d elements",
-                   ncol(X_fit), length(fit_clm$beta)))
-    }
-    h <- matrixVectorMultiply(X_fit, fit_clm$beta)
-  } else {
-    h <- rep(0, n)
-  }
-
-  # Compute cumulative probabilities using the appropriate link function
-  alpha_full <- c(-Inf, alpha, Inf)
-  eta_left  <- outer(alpha_full[1:J], h, function(a, hi) a - hi)     # J by n
-  eta_right <- outer(alpha_full[2:(J+1)], h, function(a, hi) a - hi) # J by n
-
-  # Apply the selected link function
-  m_mat_full <- t(F_link(eta_right) - F_link(eta_left))  # n by J
-  m_mat <- m_mat_full[, 1:K, drop = FALSE]  # n by (J-1)
-
-  if(any(m_mat < -1e-10 | m_mat > 1 + 1e-10)) {
-    warning("Some probabilities outside [0, 1]")
-    m_mat <- pmax(0, pmin(1, m_mat))
-  }
-
-  row_sums_partial <- rowSums(m_mat)
-  if(any(row_sums_partial > 1 + 1e-6)) {
-    warning("Sum of first J-1 probabilities exceeds 1")
-  }
-
-  colnames(m_mat) <- paste0("mu_", 1:K)
-
-  # Add link function as attribute for reference
-  attr(m_mat, "link") <- link
-
-  return(m_mat)
 }
 
 estimate_sigma2_null <- function(tilde_y, X, W_diag, strata,
@@ -473,7 +422,7 @@ estimate_sigma2_null <- function(tilde_y, X, W_diag, strata,
     tilde_Z <- ZI * W_sqrt
     tilde_G0 <- tilde_G0 - ProjectRes(A = tilde_G0, B = tilde_Z, n_threads = 1)
   }
-  U <- as.numeric(crossprod(tilde_G0, tilde_y))
+  U <- as.numeric(matrixMultiply(tilde_G0, matrix(tilde_y, ncol = 1), transA = TRUE))
   V <- as.numeric(colSums(tilde_G0^2))
   good <- is.finite(U) & is.finite(V) & (V > 0)
 

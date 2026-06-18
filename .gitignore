@@ -2,3 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
+..Rcheck/
+tmp/
+src/*.o
+src/*.so
+src/*.dll
+src/symbols.rds

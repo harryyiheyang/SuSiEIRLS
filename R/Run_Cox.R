@@ -46,7 +46,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   if (ncol(Z) == 0) {
     alpha = numeric(0)
   } else {
-    alpha = coef(fit_final)[seq_len(ncol(Z))]
+    alpha = clean_coef(coef(fit_final)[seq_len(ncol(Z))])
   }
 
   # Initialize tracking variables
@@ -102,8 +102,8 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     # Project the (X, eta) block against Z.
     diag(ZtZ) = diag(ZtZ) + ridge
-    Zinv_ZtX = solve(ZtZ, ZtX)
-    Zinv_ZtE = solve(ZtZ, ZtE)
+    Zinv_ZtX = solve_with_ridge(ZtZ, ZtX, ridge = ridge)
+    Zinv_ZtE = solve_with_ridge(ZtZ, ZtE, ridge = ridge)
 
     XtX_proj = XtX - matrixMultiply(XtZ, Zinv_ZtX)
     XtE_proj = as.vector(XtE - matrixVectorMultiply(XtZ, Zinv_ZtE))
@@ -131,7 +131,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
       coverage = coverage, ...
     )
 
-    beta = coef(fitX)[-1]
+    beta = clean_coef(coef(fitX)[-1])
     beta.cs = group.pip.filter(
       pip.summary = summary(fitX)$var,
       xQTL.cred.thres = coverage,
@@ -157,7 +157,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     # Align within-CS SNP directions while preserving PIP weights.
     Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-    XCS <- matrixMultiply(X, t(as.matrix(Alpha_filtered)))
+    XCS <- matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
     XCS <- XCS[, cs_indices, drop = FALSE]
 
     if (is.null(dim(XCS))) {
@@ -183,7 +183,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     if (ncol(Z) == 0) {
       alpha = numeric(0)
     } else {
-      alpha = coef(fit_final)[seq_len(ncol(Z))]
+      alpha = clean_coef(coef(fit_final)[seq_len(ncol(Z))])
     }
 
     # Check convergence
@@ -209,7 +209,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # Post-processing
   # ============================================
   MainIndex = Identifying_MainEffect(fitX, colnames(X))
-  G = summary(fit_final)$coefficients[,-2]
+  G = summary(fit_final)$coefficients[, -2, drop = FALSE]
   MainIndex <- safe_add_p(MainIndex, G)
 
   if (verbose) {

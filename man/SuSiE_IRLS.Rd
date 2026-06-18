@@ -42,14 +42,9 @@ SuSiE_IRLS(
 or the string \code{"negbin"} for negative binomial. Ignored when
 \code{y} is a \code{Surv} object (Cox PH is used).}
 
-\item{logit_method}{Method for binomial-logit outcomes. \code{"pg"} uses
-\code{Run_Binary}; \code{"glm"} uses the general GLM IRLS path.}
-
 \item{n_threads}{Integer number of threads for internal parallel blocks. Default 4.}
 
 \item{L}{Number of single effects in SuSiE. Default 10.}
-
-\item{L.init}{Number of SNPs used in the initial low-dimensional warm start. Default 1.}
 
 \item{coverage}{Credible set coverage level in SuSiE. Default 0.95.}
 
@@ -77,6 +72,12 @@ or the string \code{"negbin"} for negative binomial. Ignored when
 
 \item{ridge}{Diagonal ridge added to the Cox information matrix for positive
 definiteness. Used only in the Cox path. Default 1e-6.}
+
+\item{logit_method}{Method for binomial-logit outcomes. \code{"pg"} uses
+\code{Run_Binary}; \code{"glm"} uses the general GLM IRLS path.}
+
+\item{L.init}{Number of SNPs used in the initial low-dimensional warm start.
+Default 1.}
 
 \item{init_cor_method}{Correlation used by the greedy low-dimensional
 warm start. Either \code{"pearson"} or \code{"spearman"}.}
