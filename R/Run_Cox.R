@@ -6,7 +6,9 @@ Run_Cox <- function(X, y, status, Z = NULL,
                     estimate_residual_variance = FALSE, scaled_prior_variance = 1,
                     residual_variance = 1, ridge = 1e-6,
                     L.init = 1,
-                    init_cor_method = c("pearson", "spearman"), ...) {
+                    init_cor_method = c("pearson", "spearman"),
+                    refit_noncs = TRUE,
+                    noncs_var = 0.2, ...) {
 
   n = length(y)
   p = ncol(X)
@@ -159,6 +161,15 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     colnames(XCS) <- paste0("Main_CS", cs_indices)
     XCS <- as.matrix(XCS)
+    if (isTRUE(refit_noncs)) {
+      noncs_term <- build_noncs_refit_term(
+        X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
+        XCS = XCS, noncs_var = noncs_var
+      )
+      if (!is.null(noncs_term)) {
+        XCS <- cbind(XCS, Main_CS_noncs = noncs_term)
+      }
+    }
 
     # ============================================
     # Refit Cox with selected credible sets

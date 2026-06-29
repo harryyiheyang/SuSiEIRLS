@@ -26,6 +26,8 @@ SuSiE_IRLS(
   logit_method = c("pg", "glm"),
   L.init = 1,
   init_cor_method = c("pearson", "spearman"),
+  refit_noncs = TRUE,
+  noncs_var = 0.2,
   verbose = TRUE,
   ...
 )
@@ -78,6 +80,17 @@ Default 1.}
 
 \item{init_cor_method}{Correlation used by the greedy low-dimensional
 warm start. Either \code{"pearson"} or \code{"spearman"}.}
+
+\item{refit_noncs}{Logical. If TRUE, add a one-dimensional non-CS residual
+summary variable to the refit model when the current credible-set summary
+leaves enough posterior mean variation outside the CS terms. This variable
+is used only to improve the next linear predictor estimate and is not
+reported as a credible set. Default TRUE.}
+
+\item{noncs_var}{Minimum non-CS variance fraction required to add the
+non-CS residual summary variable. For example, \code{noncs_var = 0.2}
+adds it when the CS summary explains less than 80% of the posterior mean
+linear predictor variance. Default 0.2.}
 
 \item{verbose}{Logical flag for progress printing. Default TRUE.}
 

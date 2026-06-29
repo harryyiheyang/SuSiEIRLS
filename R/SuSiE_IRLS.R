@@ -38,6 +38,15 @@
 #'   definiteness. Used only in the Cox path. Default 1e-6.
 #' @param init_cor_method Correlation used by the greedy low-dimensional
 #'   warm start. Either \code{"pearson"} or \code{"spearman"}.
+#' @param refit_noncs Logical. If TRUE, add a one-dimensional non-CS residual
+#'   summary variable to the refit model when the current credible-set summary
+#'   leaves enough posterior mean variation outside the CS terms. This variable
+#'   is used only to improve the next linear predictor estimate and is not
+#'   reported as a credible set. Default TRUE.
+#' @param noncs_var Minimum non-CS variance fraction required to add the
+#'   non-CS residual summary variable. For example, \code{noncs_var = 0.2}
+#'   adds it when the CS summary explains less than 80% of the posterior mean
+#'   linear predictor variance. Default 0.2.
 #' @param ... Additional arguments passed to the SuSiE fitting routine.
 #'
 #' @return A list with elements:
@@ -69,6 +78,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
                        logit_method = c("pg", "glm"),
                        L.init = 1,
                        init_cor_method = c("pearson", "spearman"),
+                       refit_noncs = TRUE,
+                       noncs_var = 0.2,
                        verbose = TRUE, ...) {
 
   # ---- helpers ----
@@ -127,6 +138,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         ridge = ridge,
         L.init = L.init,
         init_cor_method = init_cor_method,
+        refit_noncs = refit_noncs,
+        noncs_var = noncs_var,
         ...
       )
     )
@@ -152,6 +165,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         residual_variance = residual_variance,
         L.init = L.init,
         init_cor_method = init_cor_method,
+        refit_noncs = refit_noncs,
+        noncs_var = noncs_var,
         ...
       )
     )
@@ -173,6 +188,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         residual_variance = residual_variance,
         L.init = L.init,
         init_cor_method = init_cor_method,
+        refit_noncs = refit_noncs,
+        noncs_var = noncs_var,
         ...
       )
     )
@@ -190,6 +207,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
       residual_variance = residual_variance,
       L.init = L.init,
       init_cor_method = init_cor_method,
+      refit_noncs = refit_noncs,
+      noncs_var = noncs_var,
       ...
     )
   )

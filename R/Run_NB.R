@@ -9,6 +9,8 @@ Run_NB=function(X,y,Z=NULL,weight_cutoff=0.005,
                 estimate_theta=TRUE,
                 L.init = 1,
                 init_cor_method = c("pearson", "spearman"),
+                refit_noncs = TRUE,
+                noncs_var = 0.2,
                 ...) {
 
 n=n_eff=length(y)
@@ -123,6 +125,15 @@ XCS=matrixMultiply(X,as.matrix(Alpha_filtered),transB=TRUE)
 XCS=XCS[,cs_indices,drop=FALSE]
 if (is.null(dim(XCS))) XCS=matrix(XCS,ncol=1)
 colnames(XCS)=paste0("Main_CS",cs_indices)
+if (isTRUE(refit_noncs)) {
+noncs_term=build_noncs_refit_term(
+X=X,fitX=fitX,CSdt=CSdt,cs_indices=cs_indices,
+XCS=XCS,noncs_var=noncs_var
+)
+if (!is.null(noncs_term)) {
+XCS=cbind(XCS,Main_CS_noncs=noncs_term)
+}
+}
 
 if (!has_covariates) {
 Data=data.frame(XCS)

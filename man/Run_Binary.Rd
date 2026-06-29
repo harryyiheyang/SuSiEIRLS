@@ -23,6 +23,8 @@ Run_Binary(
   residual_variance = 1,
   L.init = 1,
   init_cor_method = c("pearson", "spearman"),
+  refit_noncs = TRUE,
+  noncs_var = 0.2,
   ...
 )
 }

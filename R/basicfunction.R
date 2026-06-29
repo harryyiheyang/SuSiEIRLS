@@ -233,6 +233,46 @@ clean_coef <- function(x) {
   x
 }
 
+build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
+                                   noncs_var = 0.2) {
+  if (is.null(fitX) || is.null(CSdt) || !length(cs_indices)) return(NULL)
+  if (is.null(XCS) || ncol(as.matrix(XCS)) == 0L) return(NULL)
+
+  beta_total <- clean_coef(stats::coef(fitX)[-1L])
+  if (!length(beta_total) || length(beta_total) != ncol(X)) return(NULL)
+
+  eta_total <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
+  var_total <- stats::var(eta_total)
+  if (!is.finite(var_total) || var_total <= 1e-12) return(NULL)
+
+  noncs_var <- as.numeric(noncs_var)[1L]
+  if (!is.finite(noncs_var)) noncs_var <- 0.2
+  noncs_var <- min(max(noncs_var, 0), 1)
+
+  cs_parameter <- numeric(length(cs_indices))
+  for (ii in seq_along(cs_indices)) {
+    i_cs <- cs_indices[ii]
+    vars_in_cs_i <- CSdt$variable[CSdt$cs == i_cs]
+    vars_in_cs_i <- vars_in_cs_i[vars_in_cs_i >= 1L & vars_in_cs_i <= ncol(X)]
+    if (!length(vars_in_cs_i)) next
+
+    a <- as.numeric(fitX$alpha[i_cs, vars_in_cs_i])
+    m <- as.numeric(fitX$mu[i_cs, vars_in_cs_i])
+    ok <- is.finite(a) & is.finite(m) & a > 0
+    if (any(ok)) {
+      cs_parameter[ii] <- sum(a[ok] * abs(m[ok])) / sum(a[ok])
+    }
+  }
+
+  eta_cs <- as.numeric(as.matrix(XCS) %*% cs_parameter)
+  cs_var_ratio <- stats::var(eta_cs) / var_total
+  eta_noncs <- eta_total - eta_cs
+  if (!is.finite(cs_var_ratio) || cs_var_ratio >= (1 - noncs_var)) return(NULL)
+  if (!is.finite(stats::sd(eta_noncs)) || stats::sd(eta_noncs) <= 1e-8) return(NULL)
+
+  eta_noncs
+}
+
 safe_add_p <- function(idx, Coefmat) {
   if (is.null(idx)) return(NULL)
   if (is.data.frame(idx) && nrow(idx) == 0) return(idx)
@@ -537,4 +577,3 @@ estimate_sigma2_null <- function(tilde_y, X, W_diag, strata,
 
   max(1, sigma2_hat)
 }
-
