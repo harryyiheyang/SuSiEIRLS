@@ -8,7 +8,7 @@
 #' For survival outcomes, pass a \code{survival::Surv} object as \code{y}; the
 #' algorithm then dispatches to a Cox proportional-hazards fine-mapping routine
 #' (\code{Run_Cox}) that builds score-based sufficient statistics and runs
-#' SuSiE-RSS. No IRLS weights are used in the Cox path.
+#' SuSiE-SS. No IRLS weights are used in the Cox path.
 #'
 #' @param X An n by p numeric matrix of predictors.
 #' @param y Response vector, or a \code{survival::Surv} object for Cox PH.
@@ -63,7 +63,7 @@
 #'   \item{JointCoef}{Coefficient table from the final joint model}
 #'
 #' @importFrom stats var lm coef glm
-#' @importFrom susieR susie_ss susie_rss coef.susie
+#' @importFrom susieR susie_ss coef.susie
 #' @importFrom survival coxph Surv
 #' @importFrom CppMatrix matrixMultiply matrixVectorMultiply matrixCor
 #' @importFrom MASS glm.nb negative.binomial
@@ -140,8 +140,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         n_threads = n_threads,
         coverage = coverage,
         scaled_prior_variance = scaled_prior_variance,
-        estimate_residual_variance = FALSE,
-        residual_variance = 1,
+        estimate_residual_variance = estimate_residual_variance,
+        residual_variance = residual_variance,
         residual_variance_lowerbound = residual_variance_lowerbound,
         residual_variance_upperbound = rv_upper_default,
         ridge = ridge,

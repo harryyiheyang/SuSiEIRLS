@@ -5,8 +5,8 @@
 Run_Cox <- function(X, y, status, Z = NULL,
                     L, max.iter, min.iter, max.eps, susie.iter,
                     verbose = TRUE, n_threads = 1, coverage = 0.9,
-                    estimate_residual_variance = FALSE, scaled_prior_variance = 1,
-                    residual_variance = 1,
+                    estimate_residual_variance = TRUE, scaled_prior_variance = 1,
+                    residual_variance = 0.5,
                     residual_variance_lowerbound = 0.1,
                     residual_variance_upperbound = 1,
                     ridge = 1e-6,
@@ -122,17 +122,14 @@ Run_Cox <- function(X, y, status, Z = NULL,
     XtX = (XtX + t(XtX)) / 2
     diag(XtX) = diag(XtX) + ridge
 
-    dXtX = diag(XtX)
-    zhat = Xty / sqrt(dXtX)
-    R = cov2cor(XtX)
-    R = R / 2 + t(R) / 2
-
-    # Run SuSiE-RSS on the score statistics.
-    fitX <- susieR::susie_rss(
-      z = zhat, R = R, n = n_eff, L = L,
-      residual_variance = 1,
+    # Run SuSiE-SS on the Cox score sufficient statistics.
+    fitX <- susieR::susie_ss(
+      XtX = XtX, Xty = Xty, yty = n - 1, n = n, L = L,
+      residual_variance = residual_variance,
       scaled_prior_variance = scaled_prior_variance,
-      estimate_residual_variance = FALSE,
+      estimate_residual_variance = estimate_residual_variance,
+      residual_variance_lowerbound = residual_variance_lowerbound,
+      residual_variance_upperbound = residual_variance_upperbound,
       max_iter = susie.iter,
       estimate_prior_method = "EM",
       coverage = coverage, ...

@@ -124,5 +124,5 @@ on covariate-adjusted data. At each outer iteration the algorithm:
 For survival outcomes, pass a \code{survival::Surv} object as \code{y}; the
 algorithm then dispatches to a Cox proportional-hazards fine-mapping routine
 (\code{Run_Cox}) that builds score-based sufficient statistics and runs
-SuSiE-RSS. No IRLS weights are used in the Cox path.
+SuSiE-SS. No IRLS weights are used in the Cox path.
 }
