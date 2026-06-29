@@ -122,13 +122,14 @@ XCS <- matrix(XCS, ncol = 1)
 }
 colnames(XCS) <- paste0("Main_CS", cs_indices)
 XCS <- as.matrix(XCS)
+XCS_refit <- XCS
 if (isTRUE(refit_noncs)) {
 noncs_term <- build_noncs_refit_term(
 X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
 XCS = XCS, noncs_var = noncs_var
 )
 if (!is.null(noncs_term)) {
-XCS <- cbind(XCS, Main_CS_noncs = noncs_term)
+XCS_refit <- cbind(XCS_refit, Main_CS_noncs = noncs_term)
 }
 }
 
@@ -137,10 +138,10 @@ XCS <- cbind(XCS, Main_CS_noncs = noncs_term)
 # ============================================
 if (ncol(Z) == 0) {
 # No covariates: only intercept and XCS
-Data = data.frame(y = y, XCS)
+Data = data.frame(y = y, XCS_refit)
 } else {
 # With covariates
-Data = cbind(y, Z, XCS)
+Data = cbind(y, Z, XCS_refit)
 Data = as.data.frame(Data)
 }
 
@@ -167,6 +168,13 @@ break
 # ============================================
 # Post-processing
 # ============================================
+if (ncol(Z) == 0) {
+Data = data.frame(y = y, XCS)
+} else {
+Data = cbind(y, Z, XCS)
+Data = as.data.frame(Data)
+}
+fit_final = glm(y ~ ., data = Data, family = family)
 MainIndex = Identifying_MainEffect(fitX, colnames(X))
 G = summary(fit_final)$coefficients
 MainIndex <- safe_add_p(MainIndex, G)

@@ -161,13 +161,14 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     colnames(XCS) <- paste0("Main_CS", cs_indices)
     XCS <- as.matrix(XCS)
+    XCS_refit <- XCS
     if (isTRUE(refit_noncs)) {
       noncs_term <- build_noncs_refit_term(
         X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
         XCS = XCS, noncs_var = noncs_var
       )
       if (!is.null(noncs_term)) {
-        XCS <- cbind(XCS, Main_CS_noncs = noncs_term)
+        XCS_refit <- cbind(XCS_refit, Main_CS_noncs = noncs_term)
       }
     }
 
@@ -175,9 +176,9 @@ Run_Cox <- function(X, y, status, Z = NULL,
     # Refit Cox with selected credible sets
     # ============================================
     if (ncol(Z) == 0) {
-      Data = data.frame(XCS)
+      Data = data.frame(XCS_refit)
     } else {
-      Data = cbind(Z, XCS)
+      Data = cbind(Z, XCS_refit)
       Data = as.data.frame(Data)
     }
 
@@ -212,6 +213,13 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # ============================================
   # Post-processing
   # ============================================
+  if (ncol(Z) == 0) {
+    Data = data.frame(XCS)
+  } else {
+    Data = cbind(Z, XCS)
+    Data = as.data.frame(Data)
+  }
+  fit_final = survival::coxph(surv_y ~ ., data = Data, ties = "breslow")
   MainIndex = Identifying_MainEffect(fitX, colnames(X))
   G = summary(fit_final)$coefficients[, -2, drop = FALSE]
   MainIndex <- safe_add_p(MainIndex, G)

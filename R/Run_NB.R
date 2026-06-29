@@ -125,21 +125,22 @@ XCS=matrixMultiply(X,as.matrix(Alpha_filtered),transB=TRUE)
 XCS=XCS[,cs_indices,drop=FALSE]
 if (is.null(dim(XCS))) XCS=matrix(XCS,ncol=1)
 colnames(XCS)=paste0("Main_CS",cs_indices)
+XCS_refit=XCS
 if (isTRUE(refit_noncs)) {
 noncs_term=build_noncs_refit_term(
 X=X,fitX=fitX,CSdt=CSdt,cs_indices=cs_indices,
 XCS=XCS,noncs_var=noncs_var
 )
 if (!is.null(noncs_term)) {
-XCS=cbind(XCS,Main_CS_noncs=noncs_term)
+XCS_refit=cbind(XCS_refit,Main_CS_noncs=noncs_term)
 }
 }
 
 if (!has_covariates) {
-Data=data.frame(XCS)
+Data=data.frame(XCS_refit)
 formula_str="y ~ ."
 } else {
-Data=data.frame(Z,XCS)
+Data=data.frame(Z,XCS_refit)
 formula_str="y ~ ."
 }
 
@@ -189,6 +190,28 @@ Index=integer(0),Variable=character(0),CS=character(0),
 lbf=numeric(0),PIP=numeric(0),Pvalue=numeric(0),
 stringsAsFactors=FALSE
 )
+}
+
+if (!is.null(fitX)) {
+if (!has_covariates) {
+Data=data.frame(XCS)
+formula_str="y ~ ."
+} else {
+Data=data.frame(Z,XCS)
+formula_str="y ~ ."
+}
+if (estimate_theta) {
+fit_final=tryCatch(
+MASS::glm.nb(as.formula(formula_str),data=Data,link="log"),
+error=function(e) {
+if (verbose) warning("final glm.nb failed,using fixed theta=",theta)
+glm(as.formula(formula_str),data=Data,family=MASS::negative.binomial(theta,link="log"))
+}
+)
+} else {
+fit_final=glm(as.formula(formula_str),data=Data,
+             family=MASS::negative.binomial(theta,link="log"))
+}
 }
 
 G=tryCatch(summary(fit_final)$coefficients,error=function(e) NULL)
