@@ -103,8 +103,7 @@
 }
 
 .mgcv_greedy_warm_start <- function(X, response_info, Z, family, L.init = 1,
-                                    cor_method = c("spearman", "pearson")) {
-  cor_method <- match.arg(cor_method)
+                                    init_cor_method = NULL) {
   p <- ncol(X)
   k_init <- init_k_from_L(L.init, p)
   selected <- integer(0)
@@ -116,9 +115,7 @@
 
   for (step in seq_len(k_init)) {
     r <- stats::residuals(fit, type = "response")
-    j <- select_by_residual_cor(
-      X = X, residual = r, available = available, cor_method = cor_method
-    )
+    j <- select_by_residual_score(X = X, residual = r, available = available)
     if (is.na(j)) break
     selected <- c(selected, j)
     available[j] <- FALSE
@@ -209,13 +206,14 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.005,
                     residual_variance_lowerbound = 0.1,
                     residual_variance_upperbound = 1,
                     L.init = 1,
-                    init_cor_method = c("spearman", "pearson"),
+                    init_cor_method = NULL,
                     refit_noncs = TRUE,
-                    noncs_var = 0.2, ...) {
+                    noncs_var = 0.2,
+                    suff_block_size = 10000L, ...) {
 
   n <- NROW(y)
   p <- ncol(X)
-  init_cor_method <- match.arg(init_cor_method)
+  suff_block_size <- validate_suff_block_size(suff_block_size)
   .mgcv_validate_family(family)
   response_info <- .mgcv_prepare_response(y, family)
   if (response_info$n != nrow(X)) stop("Length(y) must equal nrow(X).")
@@ -233,7 +231,7 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.005,
 
   fit_final <- .mgcv_greedy_warm_start(
     X = X, response_info = response_info, Z = Z, family = family,
-    L.init = L.init, cor_method = init_cor_method
+    L.init = L.init, init_cor_method = init_cor_method
   )
 
   alpha <- clean_coef(stats::coef(fit_final)[seq_len(ncol(ZI))])
@@ -256,7 +254,8 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.005,
       y = work$pseudo_response,
       ZI = ZI,
       weights = work$W_diag / work$phi0,
-      n_threads = n_threads
+      n_threads = n_threads,
+      block_size = suff_block_size
     )
 
     fitX <- susieR::susie_ss(

@@ -10,13 +10,14 @@ Run_Binary <- function(X, y, Z = NULL,
                     residual_variance_lowerbound = 0.5,
                     residual_variance_upperbound = 1,
                     L.init = 1,
-                    init_cor_method = c("spearman", "pearson"),
+                    init_cor_method = NULL,
                     refit_noncs = TRUE,
-                    noncs_var = 0.2, ...) {
+                    noncs_var = 0.2,
+                    suff_block_size = 10000L, ...) {
 
 n = n_eff= length(y)
 p = ncol(X)
-init_cor_method <- match.arg(init_cor_method)
+suff_block_size <- validate_suff_block_size(suff_block_size)
 
 # ============================================
 # Handle Z edge cases
@@ -49,7 +50,7 @@ colnames(ZI)[1] = "Intercept"
 # ============================================
 fit_final = greedy_glm_warm_start(
 X = X, y = y, Z = Z, family = family, L.init = L.init,
-cor_method = init_cor_method
+init_cor_method = init_cor_method
 )
 alpha = clean_coef(coef(fit_final)[seq_len(ncol(ZI))])
 
@@ -85,7 +86,8 @@ X = X,
 y = z,
 ZI = ZI,
 weights = W_diag,
-n_threads = n_threads
+n_threads = n_threads,
+block_size = suff_block_size
 )
 XtX = suff$XtX
 Xty = suff$Xty
@@ -237,7 +239,8 @@ X = X,
 y = pseudo_response,
 ZI = ZI,
 weights = W_diag / phi0,
-n_threads = n_threads
+n_threads = n_threads,
+block_size = suff_block_size
 )
 fitX <- susie_ss(
 XtX = suff$XtX, Xty = suff$Xty, yty = suff$yty,

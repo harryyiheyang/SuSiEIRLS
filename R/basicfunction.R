@@ -274,7 +274,10 @@ build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
   if (!is.finite(var_noncs) || var_noncs <= 1e-12) return(NULL)
   if (var_noncs / var_eta_x < noncs_var) return(NULL)
 
-  cors <- suppressWarnings(stats::cor(eta_noncs, XCS))
+  eta0 <- eta_noncs - mean(eta_noncs)
+  x0 <- sweep(XCS, 2, colMeans(XCS), "-")
+  denom <- sqrt(sum(eta0^2) * colSums(x0^2))
+  cors <- as.numeric(crossprod(x0, eta0)) / denom
   if (any(is.finite(cors) & abs(cors) >= 0.999)) return(NULL)
 
   eta_noncs
@@ -335,6 +338,14 @@ hi <- quantile(w, probs = 1 - cutoff, na.rm = TRUE, names = FALSE, type = 7)
 w_trim <- pmin(pmax(w, lo), hi)
 w_trim[w_na] <- 0
 w_trim
+}
+
+validate_suff_block_size <- function(suff_block_size) {
+  if (!is.numeric(suff_block_size) || length(suff_block_size) != 1L ||
+      !is.finite(suff_block_size) || suff_block_size < 1) {
+    stop("suff_block_size must be a positive numeric scalar.")
+  }
+  as.integer(suff_block_size)
 }
 
 init_k_from_L <- function(L.init, p) {
@@ -415,76 +426,24 @@ fit_init_cox <- function(X, y, status, Z, selected) {
   }
 }
 
-select_by_residual_cor <- function(X, residual, available,
-                                   cor_method = c("pearson", "spearman")) {
-  cor_method <- match.arg(cor_method)
+select_by_residual_score <- function(X, residual, available) {
   if (!any(available)) return(NA_integer_)
 
   r <- as.numeric(residual)
   ok <- is.finite(r)
-  if (sum(ok) < 3L) return(NA_integer_)
-  if (stats::sd(r[ok]) == 0) return(NA_integer_)
-
-  if (identical(cor_method, "pearson")) {
-    row_idx <- which(ok)
-    r0 <- r[row_idx]
-    r0 <- r0 - mean(r0)
-    r_ss <- sum(r0^2)
-    if (!is.finite(r_ss) || r_ss <= 0) return(NA_integer_)
-
-    which_available <- which(available)
-    scores <- rep(NA_real_, length(which_available))
-    block_cols <- 64L
-
-    for (start in seq.int(1L, length(which_available), by = block_cols)) {
-      end <- min(length(which_available), start + block_cols - 1L)
-      cols <- which_available[start:end]
-      Xb <- X[row_idx, cols, drop = FALSE]
-
-      if (any(!is.finite(Xb))) {
-        for (j in seq_along(cols)) {
-          xj <- Xb[, j]
-          good <- is.finite(xj)
-          if (sum(good) < 3L) next
-          scores[start + j - 1L] <- suppressWarnings(stats::cor(
-            xj[good], r0[good], method = "pearson"
-          ))
-        }
-      } else {
-        x_sum <- colSums(Xb)
-        x_ss <- colSums(Xb^2) - x_sum^2 / length(r0)
-        num <- as.numeric(crossprod(Xb, r0))
-        good <- is.finite(x_ss) & (x_ss > 0)
-        target <- start:end
-        scores[target[good]] <- num[good] / sqrt(x_ss[good] * r_ss)
-      }
-
-      rm(Xb)
-    }
-
-    scores[!is.finite(scores)] <- NA_real_
-    if (all(is.na(scores))) return(NA_integer_)
-    return(which_available[which.max(abs(scores))])
-  }
-
-  Xsub <- X[ok, available, drop = FALSE]
-  scores <- suppressWarnings(
-    as.numeric(stats::cor(
-      Xsub, r[ok],
-      use = "pairwise.complete.obs",
-      method = cor_method
-    ))
-  )
+  if (!any(ok)) return(NA_integer_)
+  r[!ok] <- 0
+  scores <- as.numeric(CppMatrix::matrixMultiply(
+    X, matrix(r, ncol = 1), transA = TRUE
+  ))
+  scores[!available] <- NA_real_
   scores[!is.finite(scores)] <- NA_real_
   if (all(is.na(scores))) return(NA_integer_)
-
-  which_available <- which(available)
-  which_available[which.max(abs(scores))]
+  which.max(abs(scores))
 }
 
 greedy_glm_warm_start <- function(X, y, Z, family, L.init = 1,
-                                  cor_method = c("spearman", "pearson")) {
-  cor_method <- match.arg(cor_method)
+                                  init_cor_method = NULL) {
   p <- ncol(X)
   k_init <- init_k_from_L(L.init, p)
   selected <- integer(0)
@@ -493,9 +452,7 @@ greedy_glm_warm_start <- function(X, y, Z, family, L.init = 1,
 
   for (step in seq_len(k_init)) {
     r <- stats::residuals(fit, type = "response")
-    j <- select_by_residual_cor(
-      X = X, residual = r, available = available, cor_method = cor_method
-    )
+    j <- select_by_residual_score(X = X, residual = r, available = available)
     if (is.na(j)) break
     selected <- c(selected, j)
     available[j] <- FALSE
@@ -506,8 +463,7 @@ greedy_glm_warm_start <- function(X, y, Z, family, L.init = 1,
 }
 
 greedy_nb_warm_start <- function(X, y, Z, L.init = 1, theta_init, estimate_theta,
-                                 cor_method = c("spearman", "pearson")) {
-  cor_method <- match.arg(cor_method)
+                                 init_cor_method = NULL) {
   p <- ncol(X)
   k_init <- init_k_from_L(L.init, p)
   selected <- integer(0)
@@ -519,9 +475,7 @@ greedy_nb_warm_start <- function(X, y, Z, L.init = 1, theta_init, estimate_theta
 
   for (step in seq_len(k_init)) {
     r <- stats::residuals(fit, type = "response")
-    j <- select_by_residual_cor(
-      X = X, residual = r, available = available, cor_method = cor_method
-    )
+    j <- select_by_residual_score(X = X, residual = r, available = available)
     if (is.na(j)) break
     selected <- c(selected, j)
     available[j] <- FALSE
@@ -535,8 +489,7 @@ greedy_nb_warm_start <- function(X, y, Z, L.init = 1, theta_init, estimate_theta
 }
 
 greedy_cox_warm_start <- function(X, y, status, Z, L.init = 1,
-                                  cor_method = c("spearman", "pearson")) {
-  cor_method <- match.arg(cor_method)
+                                  init_cor_method = NULL) {
   p <- ncol(X)
   k_init <- init_k_from_L(L.init, p)
   selected <- integer(0)
@@ -545,9 +498,7 @@ greedy_cox_warm_start <- function(X, y, status, Z, L.init = 1,
 
   for (step in seq_len(k_init)) {
     r <- stats::residuals(fit, type = "martingale")
-    j <- select_by_residual_cor(
-      X = X, residual = r, available = available, cor_method = cor_method
-    )
+    j <- select_by_residual_score(X = X, residual = r, available = available)
     if (is.na(j)) break
     selected <- c(selected, j)
     available[j] <- FALSE

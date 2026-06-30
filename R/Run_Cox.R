@@ -11,13 +11,14 @@ Run_Cox <- function(X, y, status, Z = NULL,
                     residual_variance_upperbound = 1,
                     ridge = 1e-6,
                     L.init = 1,
-                    init_cor_method = c("spearman", "pearson"),
+                    init_cor_method = NULL,
                     refit_noncs = TRUE,
-                    noncs_var = 0.2, ...) {
+                    noncs_var = 0.2,
+                    suff_block_size = 10000L, ...) {
 
   n = length(y)
   p = ncol(X)
-  init_cor_method <- match.arg(init_cor_method)
+  suff_block_size <- validate_suff_block_size(suff_block_size)
 
   # ============================================
   # Handle Z edge cases
@@ -48,7 +49,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # ============================================
   fit_final = greedy_cox_warm_start(
     X = X, y = y, status = status, Z = Z, L.init = L.init,
-    cor_method = init_cor_method
+    init_cor_method = init_cor_method
   )
   if (ncol(Z) == 0) {
     alpha = numeric(0)
@@ -90,8 +91,10 @@ Run_Cox <- function(X, y, status, Z = NULL,
     n_eff = ss$d
 
     XZEa = XZE * sqrt(a)
-    A    = blockwise_crossprod(XZEa, n_threads = n_threads)
-    BtB  = blockwise_crossprod(B,    n_threads = n_threads)
+    A    = blockwise_crossprod(XZEa, n_threads = n_threads,
+                               block_size = suff_block_size)
+    BtB  = blockwise_crossprod(B, n_threads = n_threads,
+                               block_size = suff_block_size)
     XZEtXZE = A - BtB
     XZEtXZE = (XZEtXZE + t(XZEtXZE)) / 2
     idxX = seq_len(p)

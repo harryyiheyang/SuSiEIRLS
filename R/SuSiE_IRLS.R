@@ -40,8 +40,8 @@
 #' @param estimate_theta Logical, whether to estimate theta in negative binomial. Default TRUE.
 #' @param ridge Diagonal ridge added to the Cox information matrix for positive
 #'   definiteness. Used only in the Cox path. Default 1e-6.
-#' @param init_cor_method Correlation used by the greedy low-dimensional
-#'   warm start. Either \code{"pearson"} or \code{"spearman"}.
+#' @param init_cor_method Deprecated and ignored. The greedy warm start now
+#'   selects by the largest absolute residual score \code{X' r}.
 #' @param refit_noncs Logical. If TRUE, add a one-dimensional non-CS residual
 #'   summary variable to the refit model when the current credible-set summary
 #'   leaves enough posterior mean variation outside the CS terms. This variable
@@ -51,6 +51,9 @@
 #'   non-CS residual summary variable. For example, \code{noncs_var = 0.2}
 #'   adds it when the CS summary explains less than 80% of the posterior mean
 #'   linear predictor variance. Default 0.2.
+#' @param suff_block_size Row block size for weighted sufficient-statistic
+#'   crossproducts. Larger values can be faster for small-to-moderate p when
+#'   memory is sufficient. Default 10000.
 #' @param ... Additional arguments passed to the SuSiE fitting routine.
 #'
 #' @return A list with elements:
@@ -84,9 +87,10 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
                        ridge = 1e-6,
                        logit_method = c("pg", "glm"),
                        L.init = 1,
-                       init_cor_method = c("spearman", "pearson"),
+                       init_cor_method = NULL,
                        refit_noncs = TRUE,
                        noncs_var = 0.2,
+                       suff_block_size = 10000L,
                        verbose = TRUE, ...) {
 
   # ---- helpers ----
@@ -98,8 +102,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
   # Cox is identified by a Surv-typed response; family is then ignored.
   is_cox_flag <- inherits(y, "Surv")
   logit_method <- match.arg(logit_method)
-  init_cor_method <- match.arg(init_cor_method)
   rv_upper_default <- if (is.null(residual_variance_upperbound)) 1 else residual_variance_upperbound
+  suff_block_size <- validate_suff_block_size(suff_block_size)
 
   # ---- basic checks ----
   if (is.null(X)) stop("X must not be NULL.")
@@ -151,6 +155,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         init_cor_method = init_cor_method,
         refit_noncs = refit_noncs,
         noncs_var = noncs_var,
+        suff_block_size = suff_block_size,
         ...
       )
     )
@@ -183,6 +188,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         init_cor_method = init_cor_method,
         refit_noncs = refit_noncs,
         noncs_var = noncs_var,
+        suff_block_size = suff_block_size,
         ...
       )
     )
@@ -210,6 +216,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
         init_cor_method = init_cor_method,
         refit_noncs = refit_noncs,
         noncs_var = noncs_var,
+        suff_block_size = suff_block_size,
         ...
       )
     )
@@ -231,6 +238,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
       init_cor_method = init_cor_method,
       refit_noncs = refit_noncs,
       noncs_var = noncs_var,
+      suff_block_size = suff_block_size,
       ...
     )
   )

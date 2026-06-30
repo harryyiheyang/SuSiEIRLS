@@ -24,9 +24,10 @@ Run_Binary(
   residual_variance_lowerbound = 0.5,
   residual_variance_upperbound = 1,
   L.init = 1,
-  init_cor_method = c("spearman", "pearson"),
+  init_cor_method = NULL,
   refit_noncs = TRUE,
   noncs_var = 0.2,
+  suff_block_size = 10000L,
   ...
 )
 }
@@ -74,8 +75,8 @@ If NULL, defaults to 1.}
 \item{L.init}{Number of SNPs used in the initial low-dimensional warm start.
 Default 1.}
 
-\item{init_cor_method}{Correlation used by the greedy low-dimensional
-warm start. Either \code{"pearson"} or \code{"spearman"}.}
+\item{init_cor_method}{Deprecated and ignored. The greedy low-dimensional
+warm start selects by the largest absolute residual score \code{X' r}.}
 
 \item{refit_noncs}{Logical. If TRUE, add a one-dimensional non-CS residual
 summary variable to the refit model when the current credible-set summary
@@ -87,6 +88,10 @@ reported as a credible set. Default TRUE.}
 non-CS residual summary variable. For example, \code{noncs_var = 0.2}
 adds it when the CS summary explains less than 80% of the posterior mean
 linear predictor variance. Default 0.2.}
+
+\item{suff_block_size}{Row block size for weighted sufficient-statistic
+crossproducts. Larger values can be faster for small-to-moderate p when
+memory is sufficient. Default 10000.}
 
 \item{...}{Additional arguments passed to the SuSiE fitting routine.}
 }

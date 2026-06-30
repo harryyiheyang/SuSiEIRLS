@@ -11,14 +11,15 @@ Run_NB=function(X,y,Z=NULL,weight_cutoff=0.005,
                 theta_init=10,
                 estimate_theta=TRUE,
                 L.init = 1,
-                init_cor_method = c("spearman", "pearson"),
+                init_cor_method = NULL,
                 refit_noncs = TRUE,
                 noncs_var = 0.2,
+                suff_block_size = 10000L,
                 ...) {
 
 n=n_eff=length(y)
 p=ncol(X)
-init_cor_method <- match.arg(init_cor_method)
+suff_block_size <- validate_suff_block_size(suff_block_size)
 
 if (is.null(Z)) {
 Z=matrix(nrow=n,ncol=0)
@@ -35,7 +36,7 @@ has_covariates=TRUE
 
 fit_final=greedy_nb_warm_start(
 X=X,y=y,Z=Z,L.init=L.init,theta_init=theta_init,
-estimate_theta=estimate_theta,cor_method=init_cor_method
+estimate_theta=estimate_theta,init_cor_method=init_cor_method
 )
 
 alpha=clean_coef(coef(fit_final)[seq_len(ncol(ZI))])
@@ -89,7 +90,8 @@ X=X,
 y=pseudo_response,
 ZI=ZI,
 weights=W_diag/phi0,
-n_threads=n_threads
+n_threads=n_threads,
+block_size=suff_block_size
 )
 XtX=suff$XtX
 Xty=suff$Xty
