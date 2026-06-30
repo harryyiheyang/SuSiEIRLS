@@ -1,109 +1,83 @@
 # SuSiEIRLS
 
-`SuSiEIRLS` fits SuSiE-type fine-mapping models for non-Gaussian outcomes by
-constructing approximate Gaussian sufficient statistics and passing them to
-`susieR::susie_ss()`. The package separates three cases: general GLM/extended
-GLM outcomes, binary outcomes with a Polya-Gamma working path, and Cox
-proportional-hazards outcomes.
+SuSiE fine-mapping for non-Gaussian outcomes via IRLS.
 
-## GLM And Extended GLM Branch
+The package extends the Sum of Single Effects (SuSiE) framework to generalized linear models (GLMs), binary outcomes with a Pólya-Gamma augmentation path, and Cox proportional-hazards survival outcomes. At each outer iteration the algorithm constructs approximate Gaussian sufficient statistics from the current working model and passes them to `susieR::susie_ss()`.
 
-For a GLM with linear predictor
+## Installation
 
-$$
-\eta = Z\alpha + X\beta,
-$$
+```r
+# install.packages("devtools")
+devtools::install_github("harryyiheyang/SuSiEIRLS")
+```
 
-the algorithm uses the usual IRLS expansion around the current estimate. At
-iteration \(t\), with mean \(\mu^{(t)}\), derivative
-\(d\mu / d\eta\), and variance function \(V(\mu)\), the working response is
+**Dependencies:** `susieR`, `mgcv`, `survival`, `MASS`, `CppMatrix`, `SuSiE4I`.
 
-$$
-z^{(t)}
-  =
-  \eta^{(t)}
-  +
-  \frac{y - \mu^{(t)}}{d\mu / d\eta},
-$$
+## Main function
 
-with working weights
+`SuSiE_IRLS()` is the user-facing wrapper. It dispatches to one of three internal paths based on the response type and family:
 
-$$
-w_i^{(t)}
-  =
-  \left\{
-    V(\mu_i^{(t)})
-    \left(\frac{d\eta_i}{d\mu_i}\right)^2
-  \right\}^{-1}.
-$$
+| Response | Family / method | Sufficient statistics |
+|---|---|---|---|
+| Continuous or count | Any `stats` or `mgcv` family object (e.g. `poisson()`, `Gamma()`, `mgcv::tw()`, `mgcv::betar()`, `mgcv::nb()`) | IRLS working response and weights |
+| Binary | `binomial(link = "logit")` with `logit_method = "pg"` (default) | | Pólya-Gamma augmented pseudo-response |
+| Binary | `binomial(link = "logit")` with `logit_method = "glm"` | Standard IRLS working response |
+| Survival | Pass a `survival::Surv` object as `y` | Cox partial-likelihood score and information |
 
-After projecting out the covariates \(Z\), the package constructs weighted
-sufficient statistics \((X^\top W X, X^\top W z, z^\top W z)\) and runs SuSiE
-on this local Gaussian approximation. If the IRLS expansion were taken at the
-true linear predictor, the residual variance in this working Gaussian problem
-would be one.
+### Basic usage
 
-In finite samples, especially in early outer iterations, the current
-\(\eta^{(t)}\) is not exact. We therefore allow the SuSiE residual variance to
-move within a conservative interval, by default
+```r
+library(SuSiEIRLS)
 
-$$
-\sigma^2 \in [0.1, 1].
-$$
+## Binary (Pólya-Gamma path, the default)
+fit <- SuSiE_IRLS(X = X, Z = Z, y = y, L = 10)
 
-The upper bound keeps an incidental overestimate of the working residual
-variance from unnecessarily lowering power, while the lower bound prevents the
-working regression from becoming too aggressive. Negative binomial, Tweedie,
-beta, and other supported `mgcv` families follow this same working-IRLS logic;
-additional distributional parameters are estimated by the `mgcv` fit and then
-carried into the subsequent working updates.
+## Binary (standard IRLS path)
+fit <- SuSiE_IRLS(X = X, Z = Z, y = y, L = 10, logit_method = "glm")
 
-## Binary Branch
+## Poisson
+fit <- SuSiE_IRLS(X = X, Z = Z, y = y, family = poisson(), L = 10)
 
-For binary logistic outcomes, the package provides a Polya-Gamma-enhanced path.
-Using the identity
+## Negative binomial (mgcv parameterisation)
+fit <- SuSiE_IRLS(X = X, Z = Z, y = y, family = "negbin", L = 10)
 
-$$
-p(y_i \mid \eta_i)
-  \propto
-  \exp\{\kappa_i \eta_i\}
-  \int
-  \exp\left(-\frac{\omega_i \eta_i^2}{2}\right)
-  p(\omega_i)\,d\omega_i,
-  \qquad
-  \kappa_i = y_i - \frac12,
-$$
+## Cox proportional hazards
+library(survival)
+fit <- SuSiE_IRLS(X = X, Z = Z, y = Surv(time, status), L = 10)
+```
 
-the binary likelihood is represented through a conditionally Gaussian working
-problem. This path is used to improve signal detection, particularly when the
-ordinary IRLS approximation is weak.
+### Key arguments
 
-The final reported evidence is then recomputed through the standard IRLS
-working likelihood. This final correction places the log Bayes factors on the
-ordinary IRLS scale, so the PG step acts as a power-enhancing search path rather
-than as a different reporting scale. If that final IRLS correction is unstable,
-the package returns the PG fit and marks the returned main-effect summary with
-`status = "PG IRLS"`.
+| Argument | Default | Description |
+|---|---|---|
+| `X` | — | $n \times p$ predictor matrix |
+| `y` | — | Response vector, or `Surv` object for Cox |
+| `Z` | `NULL` | $n \times q$ covariate matrix (projected out before SuSiE) |
+| `family` | `binomial(link = "logit")` | GLM or `mgcv` family; ignored when `y` is `Surv` |
+| `L` | 10 | Number of single effects |
+| `coverage` | 0.9 | Credible-set coverage |
+| `max.iter` | 15 | Maximum outer IRLS iterations |
+| `logit_method` | `"pg"` | `"pg"` for Pólya-Gamma, `"glm"` for standard IRLS (binary only) |
 
-## Cox Branch
+### Output
 
-For Cox proportional-hazards outcomes,
+A list containing:
 
-$$
-\lambda(t \mid X, Z)
-  =
-  \lambda_0(t)
-  \exp\{Z\alpha + X\beta\},
-$$
+- `fitX` — the SuSiE fit object from the final iteration.
+- `fitJoint` — the refitted GLM or Cox model with selected variables.
+- `main_index` — summary table of credible sets with PIPs and p-values.
+- `JointCoef` — coefficient table from the final joint model.
+- `converged` — logical convergence flag.
+- `iter` — number of outer iterations completed.
 
-there is no observed Gaussian response \(Y\) analogous to the GLM working
-response. The package therefore constructs score-based sufficient statistics
-from the Cox partial likelihood. In this branch, \(X^\top X\) is replaced by the
-projected information matrix and \(X^\top y\) by the projected Cox score.
+## Method overview
 
-Because no literal working response is constructed, the residual scale is not
-the same theoretical unit-variance object used in the GLM and extended-GLM IRLS
-branches. The implementation therefore leaves a small degree of freedom for
-SuSiE to estimate the residual variance, again using conservative bounds. This
-keeps the Cox score approximation flexible without treating it as if it came
-from an exact Gaussian response model.
+**GLM / extended-GLM path.** The algorithm uses IRLS to linearise the GLM likelihood around the current estimate. At each outer iteration it forms a working response $z$ and diagonal weight matrix $W$, projects out covariates $Z$, and constructs weighted sufficient statistics $(X^\top W X,\; X^\top W z,\; z^\top W z)$ for `susie_ss()`. The residual variance is estimated within a bounded interval (default $[0.1, 1]$).
+
+**Binary (Pólya-Gamma) path.** For binary logistic outcomes, the Pólya-Gamma data-augmentation identity represents the logistic likelihood as a conditionally Gaussian problem with augmentation weights $\omega_i = \tanh(\eta_i/2) / (2\eta_i)$. This path improves signal detection when the standard IRLS approximation is weak. The final log Bayes factors are corrected back to the IRLS scale.
+
+**Cox path.** For survival outcomes, no working response exists. The package instead constructs score-based sufficient statistics $(X^\top M,\; A - B^\top B)$ from the Cox partial likelihood using a single-pass Breslow accumulator implemented in C++ (`cox_suffstat.cpp`). These replace $X^\top y$ and $X^\top X$ in the SuSiE-SS call.
+
+## License
+
+MIT
