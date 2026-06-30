@@ -1,10 +1,10 @@
 Package: SuSiEIRLS
 Type: Package
-Title: SuSiE and MESuSiE for non-Gaussian outcomes via IRLS
+Title: SuSiE for non-Gaussian outcomes via IRLS
 Version: 0.1.0
 Author: Yihe Yang
 Maintainer: Yihe Yang <yxy1234@case.edu>
-Description: Implements both SuSiE and MESuSiE models for generalized linear models (GLMs) 
+Description: Implements SuSiE model for extended generalized linear models (EGLMs) 
     using an Iteratively Reweighted Least Squares (IRLS) algorithm, and for Cox 
     proportional-hazards survival outcomes via score-based sufficient statistics. The 
     package extends the Sum of Single Effects (SuSiE) framework to logistic, negative 
