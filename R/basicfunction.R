@@ -131,25 +131,18 @@ return(ProjPart)
 
 solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   A <- as.matrix(A)
-  out <- tryCatch(
-    {
-      if (is.null(B)) CppMatrix::matrixInverse(A) else CppMatrix::matrixSolve(A, as.matrix(B))
-    },
-    error = function(e) {
-      A2 <- A
-      diag(A2) <- diag(A2) + ridge
-      if (is.null(B)) CppMatrix::matrixInverse(A2) else CppMatrix::matrixSolve(A2, as.matrix(B))
-    }
-  )
-  out
+  if (nrow(A) != ncol(A)) stop("A must be a square matrix.")
+  if (is.finite(ridge) && ridge > 0) {
+    diag(A) <- diag(A) + ridge
+  }
+  if (is.null(B)) CppMatrix::matrixInverse(A) else CppMatrix::matrixSolve(A, as.matrix(B))
 }
 
 weighted_residual_suffstats <- function(X, y, ZI, weights,
                                         n_threads = 1,
                                         ridge = 1e-8,
                                         block_size = 10000L) {
-  n <- nrow(X)
-  p <- ncol(X)
+  if (!is.null(ZI)) ZI <- as.matrix(ZI)
   q <- if (is.null(ZI)) 0L else ncol(ZI)
   block_size <- max(1L, as.integer(block_size))
 
@@ -157,44 +150,23 @@ weighted_residual_suffstats <- function(X, y, ZI, weights,
   weights[!is.finite(weights) | weights < 0] <- 0
   y <- as.numeric(y)
 
-  XtX <- matrix(0, nrow = p, ncol = p)
-  Xty <- numeric(p)
-  yty <- 0
+  tilde_X <- X * sqrt(weights)
+  XtX <- blockwise_crossprod(tilde_X, n_threads = n_threads,
+                             block_size = block_size)
+  rm(tilde_X)
+  gc(FALSE)
 
-  if (q > 0L) {
-    ZtZ <- matrix(0, nrow = q, ncol = q)
-    ZtX <- matrix(0, nrow = q, ncol = p)
-    Zty <- numeric(q)
-  }
-
-  for (start in seq.int(1L, n, by = block_size)) {
-    end <- min(n, start + block_size - 1L)
-    idx <- start:end
-    wi <- weights[idx]
-    if (!any(wi > 0)) next
-
-    Xb <- X[idx, , drop = FALSE]
-    yb <- y[idx]
-    Xw <- Xb * wi
-
-    XtX <- XtX + crossprod(Xb, Xw)
-    Xty <- Xty + as.numeric(crossprod(Xb, wi * yb))
-    yty <- yty + sum(wi * yb^2)
-
-    if (q > 0L) {
-      Zb <- ZI[idx, , drop = FALSE]
-      Zw <- Zb * wi
-      ZtZ <- ZtZ + crossprod(Zb, Zw)
-      ZtX <- ZtX + crossprod(Zb, Xw)
-      Zty <- Zty + as.numeric(crossprod(Zb, wi * yb))
-      rm(Zb, Zw)
-    }
-
-    rm(Xb, Xw, yb, wi)
-  }
-
+  wy <- weights * y
+  Xty <- as.numeric(matrixMultiply(X, matrix(wy, ncol = 1), transA = TRUE))
+  yty <- sum(weights * y^2)
   yty_raw <- yty
   if (q > 0L) {
+    Zw <- ZI * weights
+    ZtZ <- matrixMultiply(ZI, Zw, transA = TRUE)
+    ZtX <- matrixMultiply(Zw, X, transA = TRUE)
+    Zty <- as.numeric(matrixMultiply(ZI, matrix(wy, ncol = 1), transA = TRUE))
+    rm(Zw)
+
     Zinv_ZtX <- solve_with_ridge(ZtZ, ZtX, ridge = ridge)
     Zinv_Zty <- solve_with_ridge(ZtZ, matrix(Zty, ncol = 1), ridge = ridge)
 
@@ -263,11 +235,8 @@ build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
   XtX <- crossprod(X_full)
   if (qr(XtX)$rank < ncol(XtX)) return(NULL)
 
-  proj_coef <- tryCatch(
-    solve(XtX, crossprod(X_full, eta_x)),
-    error = function(e) NULL
-  )
-  if (is.null(proj_coef) || any(!is.finite(proj_coef))) return(NULL)
+  proj_coef <- solve(XtX, crossprod(X_full, eta_x))
+  if (any(!is.finite(proj_coef))) return(NULL)
 
   eta_noncs <- eta_x - as.numeric(X_full %*% proj_coef)
   var_noncs <- stats::var(eta_noncs)

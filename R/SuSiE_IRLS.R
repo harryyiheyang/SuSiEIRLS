@@ -41,7 +41,7 @@
 #' @param ridge Diagonal ridge added to the Cox information matrix for positive
 #'   definiteness. Used only in the Cox path. Default 1e-6.
 #' @param init_cor_method Deprecated and ignored. The greedy warm start now
-#'   selects by the largest absolute residual score \code{X' r}.
+#'   ranks variables by `abs(crossprod(X, residual))`.
 #' @param refit_noncs Logical. If TRUE, add a one-dimensional non-CS residual
 #'   summary variable to the refit model when the current credible-set summary
 #'   leaves enough posterior mean variation outside the CS terms. This variable
@@ -71,7 +71,7 @@
 #' @importFrom CppMatrix matrixMultiply matrixVectorMultiply matrixCor
 #' @importFrom MASS glm.nb negative.binomial
 #' @importFrom mgcv gam bam nb tw betar scat
-#' @importFrom SuSiE4I blockwise_crossprod cox_suffstat large_scale
+#' @importFrom SuSiE4I blockwise_crossprod large_scale
 #' @export
 SuSiE_IRLS <- function(X, Z = NULL, y = NULL,
                        family = binomial(link = "logit"),

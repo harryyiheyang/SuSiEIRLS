@@ -74,8 +74,8 @@ definiteness. Used only in the Cox path. Default 1e-6.}
 \item{L.init}{Number of SNPs used in the initial low-dimensional warm start.
 Default 1.}
 
-\item{init_cor_method}{Deprecated and ignored. The greedy low-dimensional
-warm start selects by the largest absolute residual score \code{X' r}.}
+\item{init_cor_method}{Deprecated and ignored. The greedy warm start now
+ranks variables by `abs(crossprod(X, residual))`.}
 
 \item{refit_noncs}{Logical. If TRUE, add a one-dimensional non-CS residual
 summary variable to the refit model when the current credible-set summary

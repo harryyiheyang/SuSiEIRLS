@@ -83,8 +83,8 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     XZE = cbind(X, eta, ZI)
 
-    ss  = cox_suffstat(X = XZE, eta = eta, time = y,
-                       status = as.integer(status), n_threads = n_threads)
+    ss  = SuSiE4I:::cox_suffstat(X = XZE, eta = eta, time = y,
+                                 status = as.integer(status), n_threads = n_threads)
     a     = as.numeric(ss$a)
     B     = as.matrix(ss$B)
     XZEty = as.numeric(ss$Xty)
@@ -103,7 +103,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     # Information blocks.
     XtX = XZEtXZE[idxX, idxX, drop = FALSE]
-    XtE = XZEtXZE[idxX, idxE, drop = FALSE]   # X'W eta
+    XtE = XZEtXZE[idxX, idxE, drop = FALSE]
     XtZ = XZEtXZE[idxX, idxZ, drop = FALSE]
     EtZ = XZEtXZE[idxE, idxZ, drop = FALSE]
     ZtZ = XZEtXZE[idxZ, idxZ, drop = FALSE]
@@ -113,7 +113,6 @@ Run_Cox <- function(X, y, status, Z = NULL,
     XtM = XZEty[idxX]
 
     # Project the (X, eta) block against Z.
-    diag(ZtZ) = diag(ZtZ) + ridge
     Zinv_ZtX = solve_with_ridge(ZtZ, ZtX, ridge = ridge)
     Zinv_ZtE = solve_with_ridge(ZtZ, ZtE, ridge = ridge)
 

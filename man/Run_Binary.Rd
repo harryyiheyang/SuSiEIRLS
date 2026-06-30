@@ -38,8 +38,8 @@ Run_Binary(
 
 \item{Z}{An n by q matrix or vector of covariates. If NULL, only an intercept is used.}
 
-\item{family}{A GLM family object (e.g., \code{binomial(link="logit")}),
-or the string \code{"negbin"} for negative binomial. Ignored when
+\item{family}{A GLM or mgcv family object (e.g., \code{binomial(link="logit")}),
+or the string \code{"negbin"} for \code{mgcv::nb()}. Ignored when
 \code{y} is a \code{Surv} object (Cox PH is used).}
 
 \item{weight_cutoff}{Quantile in (0, 0.05) to clip extreme IRLS weights. Default 0.005.}
@@ -75,8 +75,8 @@ If NULL, defaults to 1.}
 \item{L.init}{Number of SNPs used in the initial low-dimensional warm start.
 Default 1.}
 
-\item{init_cor_method}{Deprecated and ignored. The greedy low-dimensional
-warm start selects by the largest absolute residual score \code{X' r}.}
+\item{init_cor_method}{Deprecated and ignored. The greedy warm start now
+ranks variables by `abs(crossprod(X, residual))`.}
 
 \item{refit_noncs}{Logical. If TRUE, add a one-dimensional non-CS residual
 summary variable to the refit model when the current credible-set summary
