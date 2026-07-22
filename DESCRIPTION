@@ -1,0 +1,32 @@
+Package: SuSiEIRLS
+Type: Package
+Title: SuSiE for non-Gaussian outcomes via IRLS
+Version: 0.1.0
+Author: Yihe Yang
+Maintainer: Yihe Yang <yxy1234@case.edu>
+Description: Implements Sum of Single Effects (SuSiE) fine-mapping for
+    generalized linear, ordered-categorical, and Cox proportional-hazards
+    outcomes using IRLS or score-based sufficient statistics with penalized
+    refitting.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.3
+Imports:
+    MASS,
+    mgcv,
+    ordinal,
+    graphics,
+    susieR,
+    survival,
+    CppMatrix,
+    stats,
+    SuSiE4I
+Remotes:
+    harryyiheyang/CppMatrix,
+    harryyiheyang/SuSiE4I,
+    stephenslab/susieR
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+ORCID: 0000-0001-6563-3579

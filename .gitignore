@@ -1,0 +1,17 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.learnings/
+..Rcheck/
+tmp/
+src/*.o
+src/*.so
+src/*.dll
+src/symbols.rds
+example/*.rds
+example/*.log
+example/*.err
+example/*.txt
+example/*.csv
+example/*_results/
