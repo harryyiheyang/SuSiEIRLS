@@ -28,7 +28,7 @@
 
 .mgcv_fit_engine <- function(n, mgcv_model = NULL) {
   if (is.null(mgcv_model)) {
-    mgcv_model <- if (n < 50000L) "gam" else "bam"
+    mgcv_model <- "gam"
   } else {
     if (!is.character(mgcv_model) || length(mgcv_model) != 1L ||
         is.na(mgcv_model)) {
