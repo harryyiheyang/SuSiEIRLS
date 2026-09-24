@@ -37,7 +37,7 @@ models use fixed-ridge mgcv refits; explicitly non-logit cumulative links
 use `ordinal::clm()`. Ignored when `y` is a `Surv` object.}
 
 \item{mgcv_model}{Either `NULL`, `"gam"`, or `"bam"` for ordinary GLM and
-ZIP refits. `NULL` uses `gam` when `n < 50000` and `bam` otherwise.}
+ZIP refits. `NULL` uses `gam`.}
 
 \item{n_threads}{Integer number of threads for internal parallel blocks. Default 4.}
 

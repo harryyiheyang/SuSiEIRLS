@@ -212,7 +212,7 @@
 #' @param family A GLM or mgcv family object that provides `variance()`
 #'   and `mu.eta()` for working IRLS.
 #' @param mgcv_model Either `NULL`, `"gam"`, or `"bam"`.
-#'   `NULL` uses `gam` when `n < 50000` and `bam` otherwise.
+#'   `NULL` uses `gam`.
 #' @importFrom mgcv gam bam nb tw betar scat
 #' @keywords internal
 #' @noRd
@@ -290,7 +290,8 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
 
     beta <- clean_coef(stats::coef(fitX)[-1])
     CSdt <- summary(fitX)$vars
-    cs_indices <- sort(unique(CSdt$cs[CSdt$cs > 0]))
+    cs_list <- susie_cs_list(fitX)
+    cs_indices <- cs_list$index
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
     rm(suff)
@@ -314,7 +315,7 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
     } else {
       Alpha_filtered <- fitX$alpha * 0
       for (i in cs_indices) {
-        vars_in_cs_i <- CSdt$variable[CSdt$cs == i]
+        vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
         Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)

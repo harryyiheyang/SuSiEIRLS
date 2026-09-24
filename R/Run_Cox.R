@@ -147,38 +147,38 @@ Run_Cox <- function(X, y, status, Z = NULL,
     # ZI always contains intercept; ZI is used only for projection.
     q = ncol(ZI)
 
-    XZE = cbind(X, eta, ZI)
+    N = cbind(eta, ZI)
+    k = ncol(N)
+    rsX = SuSiE4I::cox_riskset(X = X, eta = eta, time = y,
+                               status = as.integer(status), n_threads = n_threads)
+    rsN = SuSiE4I::cox_riskset(X = N, eta = eta, time = y,
+                               status = as.integer(status), n_threads = 1L)
+    a     = as.numeric(rsX$a)
+    M     = as.numeric(rsX$M)
+    dev   = as.numeric(rsX$dev)
+    n_eff = rsX$d
 
-    ss  = SuSiE4I:::cox_suffstat(X = XZE, eta = eta, time = y,
-                                 status = as.integer(status), n_threads = n_threads)
-    a     = as.numeric(ss$a)
-    B     = as.matrix(ss$B)
-    XZEty = as.numeric(ss$Xty)
-    n_eff = ss$d
-
-    XZEa = XZE * sqrt(a)
-    A    = SuSiE4I::blockwise_crossprod(
-      XZEa, n_threads = n_threads, block_size = suff_block_size
-    )
-    BtB  = SuSiE4I::blockwise_crossprod(
-      B, n_threads = n_threads, block_size = suff_block_size
-    )
-    XZEtXZE = A - BtB
-    XZEtXZE = (XZEtXZE + t(XZEtXZE)) / 2
-    idxX = seq_len(p)
-    idxE = p + 1L
-    idxZ = p + 1L + seq_len(q)
+    # [X eta ZI]' diag(a) [X eta ZI] - B' diag(dev) B, split into X and N blocks.
+    AX = SuSiE4I::weighted_crossprod(X, a, cbind(N * a, M),
+                                     n_threads = n_threads, block_size = suff_block_size)
+    BX = SuSiE4I::weighted_crossprod(rsX$B, dev, rsN$B * dev,
+                                     n_threads = n_threads, block_size = suff_block_size)
+    XN = AX$XtM[, seq_len(k), drop = FALSE] - BX$XtM
+    NN = crossprod(N, N * a) - crossprod(rsN$B, rsN$B * dev)
+    NN = (NN + t(NN)) / 2
 
     # Information blocks.
-    XtX = XZEtXZE[idxX, idxX, drop = FALSE]
-    XtE = XZEtXZE[idxX, idxE, drop = FALSE]
-    XtZ = XZEtXZE[idxX, idxZ, drop = FALSE]
-    EtZ = XZEtXZE[idxE, idxZ, drop = FALSE]
-    ZtZ = XZEtXZE[idxZ, idxZ, drop = FALSE]
-    ZtX = XZEtXZE[idxZ, idxX, drop = FALSE]
-    ZtE = XZEtXZE[idxZ, idxE, drop = FALSE]
+    XtX = AX$XtWX - BX$XtWX
+    XtX = (XtX + t(XtX)) / 2
+    dimnames(XtX) = list(colnames(X), colnames(X))
+    XtE = XN[, 1L, drop = FALSE]
+    XtZ = XN[, 1L + seq_len(q), drop = FALSE]
+    EtZ = NN[1L, 1L + seq_len(q), drop = FALSE]
+    ZtZ = NN[1L + seq_len(q), 1L + seq_len(q), drop = FALSE]
+    ZtX = t(XtZ)
+    ZtE = NN[1L + seq_len(q), 1L, drop = FALSE]
 
-    XtM = XZEty[idxX]
+    XtM = as.numeric(AX$XtM[, k + 1L])
 
     # Project the (X, eta) block against Z.
     Zinv_ZtX = solve_with_ridge(ZtZ, ZtX, ridge = ridge)
@@ -206,7 +206,8 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     # Extract credible sets using summary information
     CSdt <- summary(fitX)$vars
-    cs_indices <- unique(CSdt$cs[CSdt$cs > 0])
+    cs_list <- susie_cs_list(fitX)
+    cs_indices <- cs_list$index
     cs_indices = sort(cs_indices)
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
@@ -231,7 +232,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     Alpha_filtered <- fitX$alpha * 0
     for (i in cs_indices) {
-      vars_in_cs_i <- CSdt$variable[CSdt$cs == i]
+      vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
       Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
     }
 

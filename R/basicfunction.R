@@ -1,18 +1,26 @@
-Identifying_MainEffect=function(fit,nam){
-summ=summary(fit)$vars
-g=unique(summ$cs[which(summ$cs>0)])
-if(length(g)==0){
-return(NULL)
+susie_cs_list <- function(fit) {
+  if (is.null(fit) || is.null(fit$sets$cs) || !length(fit$sets$cs)) {
+    return(list(index = integer(0), vars = list()))
+  }
+  index <- as.integer(fit$sets$cs_index)
+  vars <- lapply(fit$sets$cs, as.integer)
+  ord <- order(index)
+  list(index = index[ord], vars = vars[ord])
 }
-bb=summary(fit)$cs
-S=list()
-for(i in g){
-indi=which(summ$cs==i)
-a=summ$variable[indi]
-b=data.frame(Index=a,Variable=nam[summ$variable[indi]],CS=paste0("Main_CS",i),lbf=bb$cs_log10bf[bb$cs==i]*log(10),PIP=summ$variable_prob[indi])
-S[[i]]=b
-}
-return(do.call(rbind,S))
+
+Identifying_MainEffect <- function(fit, nam) {
+  cs <- susie_cs_list(fit)
+  if (!length(cs$index)) return(NULL)
+  S <- lapply(seq_along(cs$index), function(k) {
+    i <- cs$index[k]
+    a <- cs$vars[[k]]
+    a <- a[order(fit$pip[a], decreasing = TRUE)]
+    data.frame(Index = a, Variable = unname(nam[a]), CS = paste0("Main_CS", i),
+               lbf = unname(fit$lbf[i]), PIP = unname(fit$pip[a]))
+  })
+  out <- do.call(rbind, S)
+  rownames(out) <- NULL
+  out
 }
 solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   A <- as.matrix(A)
@@ -47,21 +55,18 @@ weighted_residual_suffstats <- function(X, y, ZI, weights,
   weights[!is.finite(weights) | weights < 0] <- 0
   y <- as.numeric(y)
 
-  tilde_X <- X * sqrt(weights)
-  XtX <- SuSiE4I::blockwise_crossprod(
-    tilde_X, n_threads = n_threads, block_size = block_size
-  )
-  rm(tilde_X)
-  gc(FALSE)
-
   wy <- weights * y
-  Xty <- as.numeric(matrixMultiply(X, matrix(wy, ncol = 1), transA = TRUE))
+  Zw <- if (q > 0L) ZI * weights else NULL
+  wc <- SuSiE4I::weighted_crossprod(X, weights, cbind(Zw, wy),
+                                    n_threads = n_threads,
+                                    block_size = block_size)
+  XtX <- wc$XtWX
+  Xty <- as.numeric(wc$XtM[, q + 1L])
   yty <- sum(weights * y^2)
   yty_raw <- yty
   if (q > 0L) {
-    Zw <- ZI * weights
     ZtZ <- matrixMultiply(ZI, Zw, transA = TRUE)
-    ZtX <- matrixMultiply(Zw, X, transA = TRUE)
+    ZtX <- t(wc$XtM[, seq_len(q), drop = FALSE])
     Zty <- as.numeric(matrixMultiply(ZI, matrix(wy, ncol = 1), transA = TRUE))
     rm(Zw)
 

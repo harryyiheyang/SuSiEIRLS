@@ -23,7 +23,7 @@
 #'   models use fixed-ridge mgcv refits; explicitly non-logit cumulative links
 #'   use `ordinal::clm()`. Ignored when `y` is a `Surv` object.
 #' @param mgcv_model Either `NULL`, `"gam"`, or `"bam"` for ordinary GLM and
-#'   ZIP refits. `NULL` uses `gam` when `n < 50000` and `bam` otherwise.
+#'   ZIP refits. `NULL` uses `gam`.
 #' @param L Number of single effects in SuSiE. Default 10.
 #' @param L.init Number of predictors used in the low-dimensional fitting step.
 #'   Default 1.
@@ -121,7 +121,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
   # ---- optional standardization ----
   if (isTRUE(scale_data)) {
     x_dimnames <- dimnames(X)
-    X <- SuSiE4I:::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE)
+    X <- SuSiE4I::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE)
     X <- as.matrix(X)
     dimnames(X) <- x_dimnames
 

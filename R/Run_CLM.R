@@ -224,15 +224,16 @@ ocat_suffstats <- function(X, y_int, eta, Z, alpha,
   h <- pmax(as.numeric(pp$h_eta), 1e-8)
   sw <- sqrt(h)
 
-  Xh <- X * sw
-  XtX <- SuSiE4I:::blockwise_crossprod(Xh, n_threads = n_threads,
-                                       block_size = block_size)
+  hZ <- if (q > 0L) Z * h else NULL
+  wc <- SuSiE4I::weighted_crossprod(
+    X, h, cbind(h * eta, pp$u_eta, pp$h_eta_th, hZ),
+    n_threads = n_threads, block_size = block_size
+  )
+  XtX <- wc$XtWX
   Eh <- matrix(eta * sw, ncol = 1)
-  XtE <- CppMatrix::matrixMultiply(Xh, Eh, transA = TRUE)
-  XtU <- as.numeric(CppMatrix::matrixMultiply(
-    X, matrix(pp$u_eta, ncol = 1), transA = TRUE
-  ))
-  XtT <- CppMatrix::matrixMultiply(X, pp$h_eta_th, transA = TRUE)
+  XtE <- wc$XtM[, 1L, drop = FALSE]
+  XtU <- as.numeric(wc$XtM[, 2L])
+  XtT <- wc$XtM[, 2L + seq_len(K), drop = FALSE]
 
   EtT <- CppMatrix::matrixMultiply(matrix(eta, ncol = 1), pp$h_eta_th,
                                    transA = TRUE)
@@ -240,7 +241,7 @@ ocat_suffstats <- function(X, y_int, eta, Z, alpha,
 
   if (q > 0L) {
     Zh <- Z * sw
-    XtZ <- CppMatrix::matrixMultiply(Xh, Zh, transA = TRUE)
+    XtZ <- wc$XtM[, 2L + K + seq_len(q), drop = FALSE]
     EtZ <- CppMatrix::matrixMultiply(Eh, Zh, transA = TRUE)
     ZtZ <- CppMatrix::matrixMultiply(Zh, Zh, transA = TRUE)
     ZtT <- CppMatrix::matrixMultiply(Z, pp$h_eta_th, transA = TRUE)
@@ -371,7 +372,8 @@ Run_CLM <- function(X, y, Z = NULL,
 
     beta <- clean_coef(stats::coef(fitX)[-1L])
     CSdt <- summary(fitX)$vars
-    cs_indices <- sort(unique(CSdt$cs[CSdt$cs > 0]))
+    cs_list <- susie_cs_list(fitX)
+    cs_indices <- cs_list$index
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
     if (!length(cs_indices)) {
@@ -393,7 +395,7 @@ Run_CLM <- function(X, y, Z = NULL,
     } else {
       Alpha_filtered <- fitX$alpha * 0
       for (i in cs_indices) {
-        vars_in_cs_i <- CSdt$variable[CSdt$cs == i]
+        vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
         Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
