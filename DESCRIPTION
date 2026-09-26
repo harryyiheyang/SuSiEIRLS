@@ -1,7 +1,7 @@
 Package: SuSiEIRLS
 Type: Package
 Title: SuSiE for non-Gaussian outcomes via IRLS
-Version: 0.1.0
+Version: 0.1.1
 Author: Yihe Yang
 Maintainer: Yihe Yang <yxy1234@case.edu>
 Description: Implements Sum of Single Effects (SuSiE) fine-mapping for
