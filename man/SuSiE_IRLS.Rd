@@ -21,7 +21,7 @@ SuSiE_IRLS(
   noncs_var = 0.1,
   noncs_max_abs_cor = 0.9,
   scale_data = TRUE,
-  suff_block_size = NULL,
+  suff_block_size = 10000L,
   verbose = TRUE
 )
 }
@@ -83,8 +83,8 @@ non-binary columns of `Z` are assumed to already
 be standardized. Default TRUE.}
 
 \item{suff_block_size}{Row block size for weighted sufficient-statistic
-crossproducts. Default NULL uses all rows in one block (a single BLAS
-dsyrk; needs one extra n x p copy of X). Set e.g. 10000L to cap memory.}
+crossproducts. Larger values can be faster for small-to-moderate p when
+memory is sufficient. Default 10000.}
 
 \item{verbose}{Logical flag for progress printing. Default TRUE.}
 }

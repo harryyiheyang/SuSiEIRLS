@@ -58,8 +58,8 @@
 #'   non-binary columns of `Z` are assumed to already
 #'   be standardized. Default TRUE.
 #' @param suff_block_size Row block size for weighted sufficient-statistic
-#'   crossproducts. Default NULL uses all rows in one block (a single BLAS
-#'   dsyrk; needs one extra n x p copy of X). Set e.g. 10000L to cap memory.
+#'   crossproducts. Larger values can be faster for small-to-moderate p when
+#'   memory is sufficient. Default 10000.
 #' @return A list containing the main-effect SuSiE fit, final joint model, and
 #'   `discovery_summary` table. `diagnostics` is a one-row data frame
 #'   containing the number of outer iterations, final convergence eps, and
@@ -85,7 +85,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
                        noncs_var = 0.1,
                        noncs_max_abs_cor = 0.9,
                        scale_data = TRUE,
-                       suff_block_size = NULL,
+                       suff_block_size = 10000L,
                        verbose = TRUE) {
 
   # ---- basic checks ----
@@ -171,7 +171,6 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
   # Cox is identified by a Surv-typed response; family is then ignored.
   is_cox_flag <- inherits(y, "Surv")
   susie_para <- .resolve_susie_para(susie_para)
-  if (is.null(suff_block_size)) suff_block_size <- nrow(X)
   suff_block_size <- validate_suff_block_size(suff_block_size)
 
   # ---- dispatch ----
