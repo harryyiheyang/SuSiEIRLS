@@ -63,14 +63,27 @@
   family
 }
 
+# A GAM null formula (SuSiE_IRLS_GAM) replaces the linear covariates; the
+# explicit rhs terms are appended to it and bam then runs discrete.
+.mgcv_refit_formula <- function(response, rhs, formula = NULL) {
+  if (is.null(formula)) return(.mgcv_explicit_formula(response, rhs))
+  if (!length(rhs)) return(formula)
+  stats::update(formula, stats::as.formula(
+    paste(". ~ . +", paste(.formula_backtick(rhs), collapse = " + "))
+  ))
+}
+
 .mgcv_fit_explicit <- function(response, rhs, data, family,
-                               mgcv_model = NULL) {
+                               mgcv_model = NULL, formula = NULL, ...) {
   engine <- .mgcv_fit_engine(nrow(data), mgcv_model)
   family <- .mgcv_patch_family_environment(family)
-  engine$fit(
-    .mgcv_explicit_formula(response, rhs), data = data,
-    family = family, method = engine$method
-  )
+  fml <- .mgcv_refit_formula(response, rhs, formula)
+  if (identical(engine$model, "bam") && !is.null(formula)) {
+    engine$fit(fml, data = data, family = family, method = engine$method,
+               discrete = TRUE, ...)
+  } else {
+    engine$fit(fml, data = data, family = family, method = engine$method, ...)
+  }
 }
 
 .mgcv_prepare_response <- function(y, family) {

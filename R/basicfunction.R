@@ -45,7 +45,8 @@ weighted_residual_suffstats <- function(X, y, ZI, weights,
                                         ridge = 1e-8,
                                         block_size = 10000L,
                                         projection_solver = c("ridge", "ginv"),
-                                        ginv_tol = sqrt(.Machine$double.eps)) {
+                                        ginv_tol = sqrt(.Machine$double.eps),
+                                        nuisance_precision = NULL) {
   if (!is.null(ZI)) ZI <- as.matrix(ZI)
   q <- if (is.null(ZI)) 0L else ncol(ZI)
   block_size <- max(1L, as.integer(block_size))
@@ -66,6 +67,8 @@ weighted_residual_suffstats <- function(X, y, ZI, weights,
   yty_raw <- yty
   if (q > 0L) {
     ZtZ <- matrixMultiply(ZI, Zw, transA = TRUE)
+    # penalized projection (SuSiE_IRLS_GAM): (Z'WZ + P)^-1 with P the GAM penalty
+    if (!is.null(nuisance_precision)) ZtZ <- ZtZ + as.matrix(nuisance_precision)
     ZtX <- t(wc$XtM[, seq_len(q), drop = FALSE])
     Zty <- as.numeric(matrixMultiply(ZI, matrix(wy, ncol = 1), transA = TRUE))
     rm(Zw)

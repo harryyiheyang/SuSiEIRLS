@@ -50,14 +50,15 @@
 }
 
 .mgcv_fit_fixed_ridge <- function(response, rhs, data, family, penalty_V,
-                                  dispersion = 1, mgcv_model = NULL) {
+                                  dispersion = 1, mgcv_model = NULL,
+                                  formula = NULL) {
   unpenalized_terms <- attr(penalty_V, "unpenalized_terms")
   penalty_names <- names(penalty_V)
   penalty_V <- as.numeric(penalty_V)
   names(penalty_V) <- penalty_names
   if (!length(penalty_V)) {
     fit <- .mgcv_fit_explicit(
-      response, rhs, data, family, mgcv_model = mgcv_model
+      response, rhs, data, family, mgcv_model = mgcv_model, formula = formula
     )
     if (length(unpenalized_terms)) {
       attr(fit, "refit_penalty") <- list(
@@ -93,11 +94,9 @@
     sp = 1
   ))
 
-  engine <- .mgcv_fit_engine(nrow(dat), mgcv_model)
-  family <- .mgcv_patch_family_environment(family)
-  fit <- engine$fit(
-    .mgcv_explicit_formula(response, rhs), data = dat,
-    family = family, method = engine$method, paraPen = PP
+  fit <- .mgcv_fit_explicit(
+    response, rhs, dat, family, mgcv_model = mgcv_model, formula = formula,
+    paraPen = PP
   )
 
   coef_names <- names(stats::coef(fit))

@@ -52,6 +52,24 @@ library(survival)
 fit <- SuSiE_IRLS(X = X, Z = Z, y = Surv(time, status), L = 10)
 ```
 
+### GAM null model (`gam` branch)
+
+`SuSiE_IRLS_GAM()` replaces the linear covariate matrix `Z` with an `mgcv`
+GAM null model given as a formula over `data`. The null smooths are integrated
+out of the SuSiE stage by the penalized projection
+`(B'WB + S_lambda)^-1` (the GAM's `Vp / phi`), and the joint refit is the null
+formula plus the credible-set terms with fixed ridge `1 / V`. Every `s()` uses
+the adaptive Matern basis of mgcv.taps; `te()`, `ti()` and `t2()` are not
+supported. GLM and `mgcv` families only (no ziP, ordinal or Cox).
+
+```r
+fit <- SuSiE_IRLS_GAM(y ~ s(age, by = sex) + sex, data = dat, X = X,
+                      family = binomial(), mgcv_model = "bam")
+fit$discovery_summary
+```
+
+See `example/example_gam.R`.
+
 ### Key arguments
 
 | Argument | Default | Description |
