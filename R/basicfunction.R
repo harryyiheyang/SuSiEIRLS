@@ -113,6 +113,22 @@ clean_coef <- function(x) {
   x
 }
 
+# Posterior-mean effects of X from a susie fit, without the intercept slot.
+# coef.susie() puts the intercept first, but susie_ss() fits carry an NA (or,
+# in some susieR versions, NULL) intercept, so coef(fit)[-1] either emits a
+# hint on every call or silently drops the first variable.
+susie_main_coef <- function(fit, p = NULL) {
+  b <- colSums(fit$alpha * fit$mu)
+  if (!is.null(fit$theta)) b <- b + fit$theta
+  scale <- fit$X_column_scale_factors
+  if (length(scale) == length(b)) b <- b / scale
+  b <- clean_coef(b)
+  if (!is.null(p) && length(b) != p) {
+    stop("The SuSiE coefficient vector does not match ncol(X).")
+  }
+  b
+}
+
 .susie_default_para <- function() {
   list(
     standardize = FALSE,
@@ -211,6 +227,11 @@ clean_coef <- function(x) {
     args$prior_variance <- NULL
   }
   args[names(structural)] <- structural
+  # The sufficient statistics are already projected against the intercept,
+  # so the SuSiE intercept is 0; without this susie_ss() stores NA and
+  # coef.susie() cannot return it.
+  if (is.null(args$X_colmeans)) args$X_colmeans <- 0
+  if (is.null(args$y_mean)) args$y_mean <- 0
   args
 }
 
@@ -252,8 +273,7 @@ build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
   if (is.null(fitX) || is.null(CSdt) || !length(cs_indices)) return(NULL)
   if (is.null(XCS) || ncol(as.matrix(XCS)) == 0L) return(NULL)
 
-  beta_total <- clean_coef(stats::coef(fitX)[-1L])
-  if (!length(beta_total) || length(beta_total) != ncol(X)) return(NULL)
+  beta_total <- susie_main_coef(fitX, p = ncol(X))
 
   eta_x <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
   var_eta_x <- stats::var(eta_x)
@@ -298,10 +318,7 @@ build_no_cs_noncs_refit_term <- function(X, fitX, cor_design = NULL,
   if (is.null(fitX)) return(NULL)
   if (!length(fitX$V)) return(NULL)
 
-  beta_total <- clean_coef(stats::coef(fitX)[-1L])
-  if (length(beta_total) != ncol(X)) {
-    stop("The SuSiE coefficient vector does not match ncol(X).")
-  }
+  beta_total <- susie_main_coef(fitX, p = ncol(X))
 
   noncs_res <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
   if (length(noncs_res) != nrow(X)) {
