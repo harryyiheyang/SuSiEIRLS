@@ -15,3 +15,4 @@ example/*.err
 example/*.txt
 example/*.csv
 example/*_results/
+Rplots.pdf
