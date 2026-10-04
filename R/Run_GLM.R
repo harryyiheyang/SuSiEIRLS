@@ -87,11 +87,10 @@
     ))
   }
 
-  if (is_binom && (is.factor(y) || is.logical(y))) {
-    # As in glm(): the first factor level is failure, all others success.
-    # as.numeric() on a factor would give codes 1, 2 and be read as counts.
-    y <- if (is.factor(y)) as.numeric(as.integer(y) != 1L) else as.numeric(y)
-    return(list(data = data.frame(y = y), response = "y", n = length(y)))
+  if (!is.numeric(y) && !is.logical(y)) {
+    # as.numeric() on a factor gives level codes 1, 2, ..., which binomial
+    # would then read as counts out of max(code) trials.
+    stop("y must be numeric (e.g. 0/1 for binomial), not ", class(y)[1L], ".")
   }
 
   y <- as.numeric(y)
