@@ -100,6 +100,13 @@
     ))
   }
 
+  if (is_binom && (is.factor(y) || is.logical(y))) {
+    # As in glm(): the first factor level is failure, all others success.
+    # as.numeric() on a factor would give codes 1, 2 and be read as counts.
+    y <- if (is.factor(y)) as.numeric(as.integer(y) != 1L) else as.numeric(y)
+    return(list(data = data.frame(y = y), response = "y", n = length(y)))
+  }
+
   y <- as.numeric(y)
   if (is_binom) {
     ymax <- max(y, na.rm = TRUE)
@@ -301,7 +308,7 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
     }
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta <- clean_coef(stats::coef(fitX)[-1])
+    beta <- susie_main_coef(fitX, p = p)
     CSdt <- summary(fitX)$vars
     cs_list <- susie_cs_list(fitX)
     cs_indices <- cs_list$index

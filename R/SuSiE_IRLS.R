@@ -117,6 +117,10 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
   if (weight_cutoff <= 0) weight_cutoff <- 1e-6
   if (weight_cutoff >= 0.05) weight_cutoff <- 0.049
   noncs_max_abs_cor <- validate_noncs_max_abs_cor(noncs_max_abs_cor)
+  if (!is.numeric(max.iter) || length(max.iter) != 1L ||
+      !is.finite(max.iter) || max.iter < 1) {
+    stop("max.iter must be a positive integer.")
+  }
 
   # ---- optional standardization ----
   if (isTRUE(scale_data)) {

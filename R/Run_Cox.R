@@ -134,7 +134,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # Main iteration loop
   # ============================================
   fitX_no_cs_streak <- 0L
-  for (iter in 1:max.iter) {
+  for (iter in seq_len(max.iter)) {
     beta_prev = beta
     alpha_prev = alpha
 
@@ -202,7 +202,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta = clean_coef(coef(fitX)[-1])
+    beta = susie_main_coef(fitX, p = p)
 
     # Extract credible sets using summary information
     CSdt <- summary(fitX)$vars

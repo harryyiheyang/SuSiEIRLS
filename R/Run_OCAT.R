@@ -106,7 +106,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
     fitX <- do.call(susieR::susie_ss, ss_args)
     rm(suff)
 
-    beta <- clean_coef(stats::coef(fitX)[-1L])
+    beta <- susie_main_coef(fitX, p = p)
     CSdt <- summary(fitX)$vars
     cs_list <- susie_cs_list(fitX)
     cs_indices <- cs_list$index
