@@ -18,6 +18,7 @@
 }
 
 .zip_prepare_response <- function(y) {
+  if (!is.numeric(y)) stop("ziP y must be numeric counts, not ", class(y)[1L], ".")
   y <- as.numeric(y)
   if (any(!is.finite(y))) stop("ziP y must contain finite counts.")
   if (any(y < 0)) stop("ziP y must be non-negative.")
