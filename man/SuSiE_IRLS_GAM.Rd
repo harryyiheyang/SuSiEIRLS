@@ -28,7 +28,8 @@ SuSiE_IRLS_GAM(
 \arguments{
 \item{formula}{Null-model formula with univariate `s()` terms.}
 
-\item{data}{Data frame with the response and the null-model covariates.}
+\item{data}{Data frame (or data.table) with the response and the null-model
+covariates. The response must be numeric (0/1 for binomial).}
 
 \item{X}{An n by p numeric matrix of predictors.}
 

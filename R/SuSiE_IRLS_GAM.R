@@ -22,7 +22,8 @@
 #' Zero-inflated, ordinal and Cox outcomes are not supported on this path.
 #'
 #' @param formula Null-model formula with univariate `s()` terms.
-#' @param data Data frame with the response and the null-model covariates.
+#' @param data Data frame (or data.table) with the response and the null-model
+#'   covariates. The response must be numeric (0/1 for binomial).
 #' @param X An n by p numeric matrix of predictors.
 #' @param family A GLM or mgcv family object (default `binomial()`).
 #' @param mgcv_model `NULL` or `"gam"` (REML), or `"bam"` (fREML,
@@ -106,10 +107,17 @@ gam_null_setup <- function(formula, data, family, mgcv_model, k) {
     stop("Null-model terms must be plain columns of data; not found: ",
          paste(missing_vars, collapse = ", "), ".")
   }
+  data <- as.data.frame(data)
+  y_vars <- all.vars(formula[[2L]])
+  non_numeric <- y_vars[!vapply(y_vars, function(v) is.numeric(data[[v]]), TRUE)]
+  if (length(non_numeric)) {
+    stop("The response must be numeric (e.g. 0/1 for binomial); not numeric: ",
+         paste(non_numeric, collapse = ", "), ".")
+  }
 
   # Center everything; a factor becomes its centered treatment contrasts.
   new <- data.frame(row.names = seq_len(nrow(data)))
-  for (v in all.vars(formula[[2L]])) new[[v]] <- data[[v]]
+  for (v in y_vars) new[[v]] <- data[[v]]
   cols <- list()
   for (v in all_vars) {
     if (is.numeric(data[[v]])) {
