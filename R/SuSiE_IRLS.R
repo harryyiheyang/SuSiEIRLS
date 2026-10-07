@@ -16,7 +16,13 @@
 #' the absolute precision `1 / V` to the penalized-deviance scale; Cox refits
 #' use `survival::ridge(theta = 1 / V, scale = FALSE)`.
 #'
-#' @param X An n by p numeric matrix of predictors.
+#' @param X An n by p numeric matrix of predictors, a `geno` object from
+#'   `SuSiE4I::geno_open()`, or a list of arguments to `SuSiE4I::geno_open()`
+#'   (`bedfile` or `pgenfile`, and optionally `snp_vec`, `sample_vec`,
+#'   `impute`). A PLINK BED/PGEN file is then read directly and kept in 2-bit
+#'   form, so `X` is never a dense n by p matrix in R; standardization follows
+#'   `scale_data`. `y` and `Z` must follow the sample order of the file, or of
+#'   `sample_vec` when given; values are A1 (BED) or ALT (PGEN) allele counts.
 #' @param y Response vector, or a `survival::Surv` object for Cox PH.
 #' @param Z An n by q matrix or vector of covariates. If NULL, only an intercept is used.
 #' @param family A supported GLM/mgcv family or dispatch string. Ordered-logit
@@ -90,8 +96,19 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
 
   # ---- basic checks ----
   if (is.null(X)) stop("X must not be NULL.")
-  X <- as.matrix(X)
-  if (!is.numeric(X)) stop("X must be numeric.")
+  if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
+    stop("scale_data must be TRUE or FALSE.")
+  }
+  if (is.list(X) && !inherits(X, "geno") && !is.data.frame(X)) {
+    X <- do.call(SuSiE4I::geno_open,
+                 c(X, list(scale = scale_data, threads = n_threads)))
+  }
+  if (inherits(X, "geno")) {
+    X$scale <- scale_data
+  } else {
+    X <- as.matrix(X)
+    if (!is.numeric(X)) stop("X must be numeric.")
+  }
   if (ncol(X) == 0) stop("X has zero columns.")
   if (is.null(colnames(X))) colnames(X) <- paste0("X", seq_len(ncol(X)))
 
@@ -107,10 +124,6 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
     if (is.null(colnames(Z))) colnames(Z) <- paste0("Z", seq_len(ncol(Z)))
   }
 
-  if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
-    stop("scale_data must be TRUE or FALSE.")
-  }
-
   if (!is.numeric(weight_cutoff) || length(weight_cutoff) != 1L || !is.finite(weight_cutoff)) {
     stop("weight_cutoff must be a finite numeric scalar.")
   }
@@ -120,10 +133,13 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
 
   # ---- optional standardization ----
   if (isTRUE(scale_data)) {
-    x_dimnames <- dimnames(X)
-    X <- SuSiE4I::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE)
-    X <- as.matrix(X)
-    dimnames(X) <- x_dimnames
+    # A geno X is standardized inside its products through X$scale.
+    if (!inherits(X, "geno")) {
+      x_dimnames <- dimnames(X)
+      X <- SuSiE4I::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE)
+      X <- as.matrix(X)
+      dimnames(X) <- x_dimnames
+    }
 
     if (!is.null(Z)) {
       z_dimnames <- dimnames(Z)

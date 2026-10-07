@@ -319,7 +319,7 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
         Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- CppMatrix::matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
+      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
       XCS <- XCS[, cs_indices, drop = FALSE]
       if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
       colnames(XCS) <- paste0("Main_CS", cs_indices)
