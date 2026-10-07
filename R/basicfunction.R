@@ -22,6 +22,25 @@ Identifying_MainEffect <- function(fit, nam) {
   rownames(out) <- NULL
   out
 }
+# X' v and X B for a dense X or a SuSiE4I `geno` object (PLINK BED/PGEN kept
+# in 2-bit form); geno products follow its `scale` flag.
+xtv <- function(X, v) {
+  v <- matrix(as.numeric(v), ncol = 1L)
+  if (inherits(X, "geno")) return(as.numeric(SuSiE4I::blockwise_crossprod(X, v)))
+  as.numeric(CppMatrix::matrixMultiply(X, v, transA = TRUE))
+}
+
+xv <- function(X, B) {
+  if (inherits(X, "geno")) {
+    return(utils::getFromNamespace("geno_multiply", "SuSiE4I")(X, B))
+  }
+  if (is.null(dim(B))) {
+    as.numeric(CppMatrix::matrixVectorMultiply(X, B))
+  } else {
+    CppMatrix::matrixMultiply(X, as.matrix(B))
+  }
+}
+
 solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   A <- as.matrix(A)
   if (nrow(A) != ncol(A)) stop("A must be a square matrix.")
@@ -278,7 +297,7 @@ build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
 
   beta_total <- susie_main_coef(fitX, p = ncol(X))
 
-  eta_x <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
+  eta_x <- as.numeric(xv(X, beta_total))
   var_eta_x <- stats::var(eta_x)
   if (!is.finite(var_eta_x) || var_eta_x <= 1e-12) return(NULL)
 
@@ -323,7 +342,7 @@ build_no_cs_noncs_refit_term <- function(X, fitX, cor_design = NULL,
 
   beta_total <- susie_main_coef(fitX, p = ncol(X))
 
-  noncs_res <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
+  noncs_res <- as.numeric(xv(X, beta_total))
   if (length(noncs_res) != nrow(X)) {
     stop("The no-CS rescue term does not match nrow(X).")
   }
@@ -441,9 +460,7 @@ select_by_residual_score <- function(X, residual, available) {
   ok <- is.finite(r)
   if (!any(ok)) return(NA_integer_)
   r[!ok] <- 0
-  scores <- as.numeric(CppMatrix::matrixMultiply(
-    X, matrix(r, ncol = 1), transA = TRUE
-  ))
+  scores <- xtv(X, r)
   scores[!available] <- NA_real_
   scores[!is.finite(scores)] <- NA_real_
   if (all(is.na(scores))) return(NA_integer_)

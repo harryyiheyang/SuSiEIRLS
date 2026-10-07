@@ -26,7 +26,13 @@ SuSiE_IRLS(
 )
 }
 \arguments{
-\item{X}{An n by p numeric matrix of predictors.}
+\item{X}{An n by p numeric matrix of predictors, a \code{geno} object from
+\code{SuSiE4I::geno_open()}, or a list of arguments to \code{SuSiE4I::geno_open()}
+(\code{bedfile} or \code{pgenfile}, and optionally \code{snp_vec}, \code{sample_vec},
+\code{impute}). A PLINK BED/PGEN file is then read directly and kept in 2-bit
+form, so \code{X} is never a dense n by p matrix in R; standardization follows
+\code{scale_data}. \code{y} and \code{Z} must follow the sample order of the file, or of
+\code{sample_vec} when given; values are A1 (BED) or ALT (PGEN) allele counts.}
 
 \item{Z}{An n by q matrix or vector of covariates. If NULL, only an intercept is used.}
 
