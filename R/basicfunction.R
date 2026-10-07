@@ -26,14 +26,12 @@ Identifying_MainEffect <- function(fit, nam) {
 # in 2-bit form); geno products follow its `scale` flag.
 xtv <- function(X, v) {
   v <- matrix(as.numeric(v), ncol = 1L)
-  if (inherits(X, "geno")) return(as.numeric(SuSiE4I::blockwise_crossprod(X, v)))
+  if (inherits(X, "geno")) return(as.numeric(SuSiE4I::geno_crossprod(X, v)))
   as.numeric(CppMatrix::matrixMultiply(X, v, transA = TRUE))
 }
 
 xv <- function(X, B) {
-  if (inherits(X, "geno")) {
-    return(utils::getFromNamespace("geno_multiply", "SuSiE4I")(X, B))
-  }
+  if (inherits(X, "geno")) return(SuSiE4I::geno_multiply(X, B))
   if (is.null(dim(B))) {
     as.numeric(CppMatrix::matrixVectorMultiply(X, B))
   } else {
