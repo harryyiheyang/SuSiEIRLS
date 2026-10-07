@@ -103,6 +103,8 @@ results match a dense `X` standardized with `scale_data = TRUE`. The rows of `y`
 (and of a `Surv` response) and `Z` must follow the sample order of the file (or
 of `sample_vec` when given), and values are A1 (BED) or ALT (PGEN) allele
 counts. This needs a SuSiE4I version with `geno_open()`.
+`SuSiE_IRLS_GAM()` accepts the same `X`; the rows of `data` must then follow
+the sample order of the file.
 
 ### Output
 

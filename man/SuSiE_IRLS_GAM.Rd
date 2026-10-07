@@ -31,7 +31,12 @@ SuSiE_IRLS_GAM(
 \item{data}{Data frame (or data.table) with the response and the null-model
 covariates. The response must be numeric (0/1 for binomial).}
 
-\item{X}{An n by p numeric matrix of predictors.}
+\item{X}{An n by p numeric matrix of predictors, a \code{geno} object from
+\code{SuSiE4I::geno_open()}, or a list of arguments to \code{SuSiE4I::geno_open()}
+(\code{bedfile} or \code{pgenfile}, and optionally \code{snp_vec}, \code{sample_vec},
+\code{impute}), which reads a PLINK BED/PGEN file without forming a dense n by
+p matrix in R. The rows of \code{data} must follow the sample order of the
+file, or of \code{sample_vec} when given.}
 
 \item{family}{A GLM or mgcv family object (default `binomial()`).}
 

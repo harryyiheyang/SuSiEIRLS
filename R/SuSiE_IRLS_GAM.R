@@ -24,7 +24,12 @@
 #' @param formula Null-model formula with univariate `s()` terms.
 #' @param data Data frame (or data.table) with the response and the null-model
 #'   covariates. The response must be numeric (0/1 for binomial).
-#' @param X An n by p numeric matrix of predictors.
+#' @param X An n by p numeric matrix of predictors, a `geno` object from
+#'   `SuSiE4I::geno_open()`, or a list of arguments to `SuSiE4I::geno_open()`
+#'   (`bedfile` or `pgenfile`, and optionally `snp_vec`, `sample_vec`,
+#'   `impute`), which reads a PLINK BED/PGEN file without forming a dense n by
+#'   p matrix in R. The rows of `data` must follow the sample order of the
+#'   file, or of `sample_vec` when given.
 #' @param family A GLM or mgcv family object (default `binomial()`).
 #' @param mgcv_model `NULL` or `"gam"` (REML), or `"bam"` (fREML,
 #'   `discrete = TRUE`).
@@ -48,8 +53,16 @@ SuSiE_IRLS_GAM <- function(formula, data, X,
                            verbose = TRUE) {
   if (!inherits(formula, "formula")) stop("formula must be a formula.")
   if (!is.data.frame(data)) stop("data must be a data frame.")
-  X <- as.matrix(X)
-  if (!is.numeric(X)) stop("X must be numeric.")
+  if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
+    stop("scale_data must be TRUE or FALSE.")
+  }
+  if (is.list(X) && !inherits(X, "geno") && !is.data.frame(X)) {
+    X <- do.call(SuSiE4I::geno_open, c(X, list(threads = n_threads)))
+  }
+  if (!inherits(X, "geno")) {
+    X <- as.matrix(X)
+    if (!is.numeric(X)) stop("X must be numeric.")
+  }
   if (ncol(X) == 0) stop("X has zero columns.")
   if (nrow(X) != nrow(data)) stop("nrow(X) must equal nrow(data).")
   if (is.null(colnames(X))) colnames(X) <- paste0("X", seq_len(ncol(X)))
@@ -59,9 +72,6 @@ SuSiE_IRLS_GAM <- function(formula, data, X,
   }
   .mgcv_validate_family(family)
   .mgcv_fit_engine(nrow(X), mgcv_model)
-  if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
-    stop("scale_data must be TRUE or FALSE.")
-  }
   if (!is.numeric(weight_cutoff) || length(weight_cutoff) != 1L || !is.finite(weight_cutoff)) {
     stop("weight_cutoff must be a finite numeric scalar.")
   }
@@ -69,11 +79,18 @@ SuSiE_IRLS_GAM <- function(formula, data, X,
   if (weight_cutoff >= 0.05) weight_cutoff <- 0.049
   noncs_max_abs_cor <- validate_noncs_max_abs_cor(noncs_max_abs_cor)
 
-  x_dimnames <- dimnames(X)
-  X <- if (scale_data) {
-    as.matrix(SuSiE4I::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE))
-  } else sweep(X, 2L, colMeans(X))
-  dimnames(X) <- x_dimnames
+  if (inherits(X, "geno")) {
+    # geno products center by X$center and divide by X$sd, so a unit sd
+    # gives the centered-only matrix of scale_data = FALSE.
+    X$scale <- TRUE
+    if (!scale_data) X$sd <- rep(1, ncol(X))
+  } else {
+    x_dimnames <- dimnames(X)
+    X <- if (scale_data) {
+      as.matrix(SuSiE4I::large_scale(X, n_threads = n_threads, center = TRUE, scale = TRUE))
+    } else sweep(X, 2L, colMeans(X))
+    dimnames(X) <- x_dimnames
+  }
 
   null <- gam_null_setup(formula, data, family, mgcv_model, k)
   Run_GAM(
@@ -268,7 +285,7 @@ Run_GAM <- function(X, null, family, mgcv_model = NULL,
         Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- CppMatrix::matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
+      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
       XCS <- XCS[, cs_indices, drop = FALSE]
       if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
       colnames(XCS) <- paste0("Main_CS", cs_indices)
