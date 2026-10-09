@@ -141,6 +141,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
       XCS <- XCS[, cs_indices, drop = FALSE]
       if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
       colnames(XCS) <- paste0("Main_CS", cs_indices)
+      XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
       XCS_refit <- XCS
 
       noncs_term <- build_noncs_refit_term(
