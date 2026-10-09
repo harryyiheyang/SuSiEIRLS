@@ -22,6 +22,69 @@ Identifying_MainEffect <- function(fit, nam) {
   rownames(out) <- NULL
   out
 }
+# X' v and X B for a dense X or a SuSiE4I `geno` object (PLINK BED/PGEN kept
+# in 2-bit form); geno products follow its `scale` flag.
+xtv <- function(X, v) {
+  v <- matrix(as.numeric(v), ncol = 1L)
+  if (inherits(X, "geno")) return(as.numeric(SuSiE4I::geno_crossprod(X, v)))
+  as.numeric(CppMatrix::matrixMultiply(X, v, transA = TRUE))
+}
+
+xv <- function(X, B) {
+  if (inherits(X, "geno")) return(SuSiE4I::geno_multiply(X, B))
+  if (is.null(dim(B))) {
+    as.numeric(CppMatrix::matrixVectorMultiply(X, B))
+  } else {
+    CppMatrix::matrixMultiply(X, as.matrix(B))
+  }
+}
+
+# Flip each CS summary column so it moves with its lead (highest-PIP) member:
+# a positive refit coefficient then means the lead's X raises the response.
+orient_cs_by_lead <- function(XCS, fit, cs_list, cs_indices) {
+  lead_sign <- vapply(cs_indices, function(i) {
+    v <- cs_list$vars[[match(i, cs_list$index)]]
+    sg <- sign(fit$mu[i, v[which.max(fit$pip[v])]])
+    if (is.finite(sg) && sg != 0) sg else 1
+  }, numeric(1))
+  sweep(XCS, 2L, lead_sign, "*")
+}
+
+# For a geno X, adds A1 (counted allele) and A2 to discovery_summary, and on
+# each CS's lead row Effect/Effect_SE: the refit coefficient per lead A1 dose
+# on the linear-predictor scale (log HR for Cox, latent scale for CLM). It
+# divides by the lead's sd when X is scaled, so it is exact for single-variant
+# sets and approximated by the lead otherwise.
+add_alleles <- function(res, X) {
+  main <- res$discovery_summary
+  if (!is.data.frame(main) || !nrow(main) || !("Index" %in% names(main))) {
+    return(res)
+  }
+  sdx <- if (isTRUE(X$scale)) ifelse(X$sd > 0, X$sd, 1) else rep(1, X$p)
+  f <- res$fitJoint
+  tab <- tryCatch({
+    g <- if (inherits(f, "coxph")) .cox_coef_table(f)
+         else if (inherits(f, "gam")) summary(f)$p.table
+         else .clm_coef_table(f)
+    if (is.null(g) || ncol(g) < 2L) NULL else g
+  }, error = function(e) NULL)
+  i <- main$Index
+  main$A1 <- X$a1[i]
+  main$A2 <- X$a2[i]
+  main$Effect <- NA_real_
+  main$Effect_SE <- NA_real_
+  if (!is.null(tab)) {
+    for (r in which(!duplicated(main$CS))) {
+      k <- match(main$CS[r], rownames(tab))
+      if (is.na(k)) next
+      main$Effect[r] <- tab[k, 1L] / sdx[i[r]]
+      main$Effect_SE[r] <- tab[k, 2L] / sdx[i[r]]
+    }
+  }
+  res$discovery_summary <- main
+  res
+}
+
 solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   A <- as.matrix(A)
   if (nrow(A) != ncol(A)) stop("A must be a square matrix.")
@@ -111,6 +174,22 @@ clean_coef <- function(x) {
   x <- as.numeric(x)
   x[!is.finite(x)] <- 0
   x
+}
+
+# Posterior-mean effects of X from a susie fit, without the intercept slot.
+# coef.susie() puts the intercept first, but susie_ss() fits carry an NA (or,
+# in some susieR versions, NULL) intercept, so coef(fit)[-1] either emits a
+# hint on every call or silently drops the first variable.
+susie_main_coef <- function(fit, p = NULL) {
+  b <- colSums(fit$alpha * fit$mu)
+  if (!is.null(fit$theta)) b <- b + fit$theta
+  scale <- fit$X_column_scale_factors
+  if (length(scale) == length(b)) b <- b / scale
+  b <- clean_coef(b)
+  if (!is.null(p) && length(b) != p) {
+    stop("The SuSiE coefficient vector does not match ncol(X).")
+  }
+  b
 }
 
 .susie_default_para <- function() {
@@ -211,6 +290,11 @@ clean_coef <- function(x) {
     args$prior_variance <- NULL
   }
   args[names(structural)] <- structural
+  # The sufficient statistics are already projected against the intercept,
+  # so the SuSiE intercept is 0; without this susie_ss() stores NA and
+  # coef.susie() cannot return it.
+  if (is.null(args$X_colmeans)) args$X_colmeans <- 0
+  if (is.null(args$y_mean)) args$y_mean <- 0
   args
 }
 
@@ -252,10 +336,9 @@ build_noncs_refit_term <- function(X, fitX, CSdt, cs_indices, XCS,
   if (is.null(fitX) || is.null(CSdt) || !length(cs_indices)) return(NULL)
   if (is.null(XCS) || ncol(as.matrix(XCS)) == 0L) return(NULL)
 
-  beta_total <- clean_coef(stats::coef(fitX)[-1L])
-  if (!length(beta_total) || length(beta_total) != ncol(X)) return(NULL)
+  beta_total <- susie_main_coef(fitX, p = ncol(X))
 
-  eta_x <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
+  eta_x <- as.numeric(xv(X, beta_total))
   var_eta_x <- stats::var(eta_x)
   if (!is.finite(var_eta_x) || var_eta_x <= 1e-12) return(NULL)
 
@@ -298,12 +381,9 @@ build_no_cs_noncs_refit_term <- function(X, fitX, cor_design = NULL,
   if (is.null(fitX)) return(NULL)
   if (!length(fitX$V)) return(NULL)
 
-  beta_total <- clean_coef(stats::coef(fitX)[-1L])
-  if (length(beta_total) != ncol(X)) {
-    stop("The SuSiE coefficient vector does not match ncol(X).")
-  }
+  beta_total <- susie_main_coef(fitX, p = ncol(X))
 
-  noncs_res <- as.numeric(CppMatrix::matrixVectorMultiply(X, beta_total))
+  noncs_res <- as.numeric(xv(X, beta_total))
   if (length(noncs_res) != nrow(X)) {
     stop("The no-CS rescue term does not match nrow(X).")
   }
@@ -421,9 +501,7 @@ select_by_residual_score <- function(X, residual, available) {
   ok <- is.finite(r)
   if (!any(ok)) return(NA_integer_)
   r[!ok] <- 0
-  scores <- as.numeric(CppMatrix::matrixMultiply(
-    X, matrix(r, ncol = 1), transA = TRUE
-  ))
+  scores <- xtv(X, r)
   scores[!available] <- NA_real_
   scores[!is.finite(scores)] <- NA_real_
   if (all(is.na(scores))) return(NA_integer_)

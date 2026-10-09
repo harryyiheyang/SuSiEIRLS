@@ -106,7 +106,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
     fitX <- do.call(susieR::susie_ss, ss_args)
     rm(suff)
 
-    beta <- clean_coef(stats::coef(fitX)[-1L])
+    beta <- susie_main_coef(fitX, p = p)
     CSdt <- summary(fitX)$vars
     cs_list <- susie_cs_list(fitX)
     cs_indices <- cs_list$index
@@ -137,12 +137,11 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
           sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- CppMatrix::matrixMultiply(
-        X, as.matrix(Alpha_filtered), transB = TRUE
-      )
+      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
       XCS <- XCS[, cs_indices, drop = FALSE]
       if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
       colnames(XCS) <- paste0("Main_CS", cs_indices)
+      XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
       XCS_refit <- XCS
 
       noncs_term <- build_noncs_refit_term(

@@ -26,7 +26,13 @@ SuSiE_IRLS(
 )
 }
 \arguments{
-\item{X}{An n by p numeric matrix of predictors.}
+\item{X}{An n by p numeric matrix of predictors, a \code{geno} object from
+\code{SuSiE4I::geno_open()}, or a list of arguments to \code{SuSiE4I::geno_open()}
+(\code{bedfile} or \code{pgenfile}, and optionally \code{snp_vec}, \code{sample_vec},
+\code{impute}). A PLINK BED/PGEN file is then read directly and kept in 2-bit
+form, so \code{X} is never a dense n by p matrix in R; standardization follows
+\code{scale_data}. \code{y} and \code{Z} must follow the sample order of the file, or of
+\code{sample_vec} when given; values are A1 (BED) or ALT (PGEN) allele counts.}
 
 \item{Z}{An n by q matrix or vector of covariates. If NULL, only an intercept is used.}
 
@@ -93,7 +99,13 @@ A list containing the main-effect SuSiE fit, final joint model, and
   `discovery_summary` table. `diagnostics` is a one-row data frame
   containing the number of outer iterations, final convergence eps, and
   runtime in seconds. The effective sample size used by the algorithm is
-  stored in `fitJoint$n_eff`.
+  stored in `fitJoint$n_eff`. Credible-set refit columns are oriented to
+  their lead (highest-PIP) variant, so a positive refit coefficient means
+  the lead's X increases the response. For geno input,
+  `discovery_summary` adds `A1` (counted allele: bim column 5 / PGEN ALT),
+  `A2`, and, on each set's lead row, `Effect`/`Effect_SE`: the refit
+  coefficient per A1 dose on the model's linear-predictor scale (exact for
+  single-variant sets; Cox log HR, CLM latent scale).
 }
 \description{
 Iterates between IRLS-based pseudo-response construction and SuSiE fine-mapping

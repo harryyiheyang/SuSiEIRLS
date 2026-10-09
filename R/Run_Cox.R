@@ -76,6 +76,41 @@
   G
 }
 
+# B' diag(dev) B and B' diag(dev) BN for the risk-set means B of a geno X at the
+# event times, streamed over row blocks in descending-time order so the n by p
+# matrix B is never formed (as in SuSiE4I's cox_suffstat_block).
+cox_riskset_crossprod_geno <- function(X, eta, time, status, dev, BN,
+                                       block_size = 10000L) {
+  n <- nrow(X)
+  p <- ncol(X)
+  status <- as.integer(status)
+  ord <- order(time, decreasing = TRUE)
+  w <- exp(eta - max(eta))
+  run <- rle(time[ord])
+  run_id <- rep(seq_along(run$lengths), run$lengths)
+  has_event <- tabulate(run_id[status[ord] == 1L], length(run$lengths)) > 0
+  blk_end <- cumsum(run$lengths)[has_event]
+  S0 <- cumsum(w[ord])[blk_end]
+  rows <- max(1L, min(as.integer(block_size), 2^26 %/% p))
+  BtdB <- matrix(0, p, p)
+  BtdN <- matrix(0, p, ncol(BN))
+  carry <- numeric(p)
+  for (start in seq.int(1L, n, by = rows)) {
+    idx <- start:min(n, start + rows - 1L)
+    G <- X[ord[idx], , drop = FALSE]
+    Gw <- G * w[ord[idx]]
+    Gw[1L, ] <- Gw[1L, ] + carry
+    S1 <- matrix(apply(Gw, 2L, cumsum), nrow = length(idx))
+    carry <- S1[length(idx), ]
+    b_idx <- which(blk_end >= start & blk_end <= max(idx))
+    if (length(b_idx) == 0L) next
+    Bblk <- S1[blk_end[b_idx] - start + 1L, , drop = FALSE] / S0[b_idx]
+    BtdB <- BtdB + crossprod(Bblk, Bblk * dev[b_idx])
+    BtdN <- BtdN + crossprod(Bblk, BN[b_idx, , drop = FALSE] * dev[b_idx])
+  }
+  list(XtWX = BtdB, XtM = BtdN)
+}
+
 Run_Cox <- function(X, y, status, Z = NULL,
                     L, max.iter, min.iter, max.eps, susie_para,
                     verbose = TRUE, n_threads = 1,
@@ -134,7 +169,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # Main iteration loop
   # ============================================
   fitX_no_cs_streak <- 0L
-  for (iter in 1:max.iter) {
+  for (iter in seq_len(max.iter)) {
     beta_prev = beta
     alpha_prev = alpha
 
@@ -149,10 +184,13 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     N = cbind(eta, ZI)
     k = ncol(N)
-    rsX = SuSiE4I::cox_riskset(X = X, eta = eta, time = y,
-                               status = as.integer(status), n_threads = n_threads)
     rsN = SuSiE4I::cox_riskset(X = N, eta = eta, time = y,
                                status = as.integer(status), n_threads = 1L)
+    # a, M, dev and d do not depend on the columns, so a geno X reuses rsN.
+    rsX = if (inherits(X, "geno")) rsN else {
+      SuSiE4I::cox_riskset(X = X, eta = eta, time = y,
+                           status = as.integer(status), n_threads = n_threads)
+    }
     a     = as.numeric(rsX$a)
     M     = as.numeric(rsX$M)
     dev   = as.numeric(rsX$dev)
@@ -161,8 +199,14 @@ Run_Cox <- function(X, y, status, Z = NULL,
     # [X eta ZI]' diag(a) [X eta ZI] - B' diag(dev) B, split into X and N blocks.
     AX = SuSiE4I::weighted_crossprod(X, a, cbind(N * a, M),
                                      n_threads = n_threads, block_size = suff_block_size)
-    BX = SuSiE4I::weighted_crossprod(rsX$B, dev, rsN$B * dev,
-                                     n_threads = n_threads, block_size = suff_block_size)
+    BX = if (inherits(X, "geno")) {
+      cox_riskset_crossprod_geno(X, eta = eta, time = y, status = status,
+                                 dev = dev, BN = rsN$B,
+                                 block_size = suff_block_size)
+    } else {
+      SuSiE4I::weighted_crossprod(rsX$B, dev, rsN$B * dev,
+                                  n_threads = n_threads, block_size = suff_block_size)
+    }
     XN = AX$XtM[, seq_len(k), drop = FALSE] - BX$XtM
     NN = crossprod(N, N * a) - crossprod(rsN$B, rsN$B * dev)
     NN = (NN + t(NN)) / 2
@@ -202,7 +246,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta = clean_coef(coef(fitX)[-1])
+    beta = susie_main_coef(fitX, p = p)
 
     # Extract credible sets using summary information
     CSdt <- summary(fitX)$vars
@@ -238,7 +282,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
 
     # Align within-CS SNP directions while preserving PIP weights.
     Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-    XCS <- matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
+    XCS <- xv(X, t(as.matrix(Alpha_filtered)))
     XCS <- XCS[, cs_indices, drop = FALSE]
 
     if (is.null(dim(XCS))) {
@@ -246,6 +290,8 @@ Run_Cox <- function(X, y, status, Z = NULL,
     }
 
     colnames(XCS) <- paste0("Main_CS", cs_indices)
+
+    XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
     XCS <- as.matrix(XCS)
     XCS_refit <- XCS
     noncs_term <- build_noncs_refit_term(

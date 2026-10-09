@@ -213,7 +213,7 @@ ocat_suffstats <- function(X, y_int, eta, Z, alpha,
                            clm_link = "logit",
                            n_threads = 1, ridge = 1e-6,
                            block_size = 10000L) {
-  X <- as.matrix(X)
+  if (!inherits(X, "geno")) X <- as.matrix(X)
   Z <- as.matrix(Z)
   n <- nrow(X)
   K <- length(alpha)
@@ -370,7 +370,7 @@ Run_CLM <- function(X, y, Z = NULL,
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta <- clean_coef(stats::coef(fitX)[-1L])
+    beta <- susie_main_coef(fitX, p = p)
     CSdt <- summary(fitX)$vars
     cs_list <- susie_cs_list(fitX)
     cs_indices <- cs_list$index
@@ -399,10 +399,11 @@ Run_CLM <- function(X, y, Z = NULL,
         Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
       }
       Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- CppMatrix::matrixMultiply(X, as.matrix(Alpha_filtered), transB = TRUE)
+      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
       XCS <- XCS[, cs_indices, drop = FALSE]
       if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
       colnames(XCS) <- paste0("Main_CS", cs_indices)
+      XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
       XCS_refit <- XCS
 
       noncs_term <- build_noncs_refit_term(
