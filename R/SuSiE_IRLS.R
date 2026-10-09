@@ -70,7 +70,13 @@
 #'   `discovery_summary` table. `diagnostics` is a one-row data frame
 #'   containing the number of outer iterations, final convergence eps, and
 #'   runtime in seconds. The effective sample size used by the algorithm is
-#'   stored in `fitJoint$n_eff`.
+#'   stored in `fitJoint$n_eff`. Credible-set refit columns are oriented to
+#'   their lead (highest-PIP) variant, so a positive refit coefficient means
+#'   the lead's X increases the response. For geno input,
+#'   `discovery_summary` adds `A1` (counted allele: bim column 5 / PGEN ALT),
+#'   `A2`, and, on each set's lead row, `Effect`/`Effect_SE`: the refit
+#'   coefficient per A1 dose on the model's linear-predictor scale (exact for
+#'   single-variant sets; Cox log HR, CLM latent scale).
 #'
 #' @importFrom stats var coef glm binomial quantile sd
 #' @importFrom graphics text
@@ -93,9 +99,6 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
                        scale_data = TRUE,
                        suff_block_size = 10000L,
                        verbose = TRUE) {
-
-  # ---- basic checks ----
-  if (is.null(X)) stop("X must not be NULL.")
   if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
     stop("scale_data must be TRUE or FALSE.")
   }
@@ -103,9 +106,39 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
     X <- do.call(SuSiE4I::geno_open,
                  c(X, list(scale = scale_data, threads = n_threads)))
   }
-  if (inherits(X, "geno")) {
-    X$scale <- scale_data
-  } else {
+  if (inherits(X, "geno")) X$scale <- scale_data
+  res <- .SuSiE_IRLS_core(
+    X = X, Z = Z, y = y, family = family, mgcv_model = mgcv_model,
+    n_threads = n_threads, L = L, susie_para = susie_para,
+    max.iter = max.iter, max.eps = max.eps, min.iter = min.iter,
+    weight_cutoff = weight_cutoff, L.init = L.init, noncs_var = noncs_var,
+    noncs_max_abs_cor = noncs_max_abs_cor, scale_data = scale_data,
+    suff_block_size = suff_block_size, verbose = verbose
+  )
+  if (inherits(X, "geno")) res <- add_alleles(res, X)
+  res
+}
+
+.SuSiE_IRLS_core <- function(X, Z = NULL, y,
+                             family = binomial(link = "logit"),
+                             mgcv_model = NULL,
+                             n_threads = 4, L = 10,
+                             susie_para = NULL,
+                             max.iter = 10, max.eps = 1e-5, min.iter = 2,
+                             weight_cutoff = 0.0025,
+                             L.init = 1,
+                             noncs_var = 0.1,
+                             noncs_max_abs_cor = 0.9,
+                             scale_data = TRUE,
+                             suff_block_size = 10000L,
+                             verbose = TRUE) {
+
+  # ---- basic checks ----
+  if (is.null(X)) stop("X must not be NULL.")
+  if (!is.logical(scale_data) || length(scale_data) != 1L || is.na(scale_data)) {
+    stop("scale_data must be TRUE or FALSE.")
+  }
+  if (!inherits(X, "geno")) {
     X <- as.matrix(X)
     if (!is.numeric(X)) stop("X must be numeric.")
   }

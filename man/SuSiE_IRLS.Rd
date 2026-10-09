@@ -99,7 +99,13 @@ A list containing the main-effect SuSiE fit, final joint model, and
   `discovery_summary` table. `diagnostics` is a one-row data frame
   containing the number of outer iterations, final convergence eps, and
   runtime in seconds. The effective sample size used by the algorithm is
-  stored in `fitJoint$n_eff`.
+  stored in `fitJoint$n_eff`. Credible-set refit columns are oriented to
+  their lead (highest-PIP) variant, so a positive refit coefficient means
+  the lead's X increases the response. For geno input,
+  `discovery_summary` adds `A1` (counted allele: bim column 5 / PGEN ALT),
+  `A2`, and, on each set's lead row, `Effect`/`Effect_SE`: the refit
+  coefficient per A1 dose on the model's linear-predictor scale (exact for
+  single-variant sets; Cox log HR, CLM latent scale).
 }
 \description{
 Iterates between IRLS-based pseudo-response construction and SuSiE fine-mapping

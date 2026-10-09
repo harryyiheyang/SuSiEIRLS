@@ -290,6 +290,8 @@ Run_Cox <- function(X, y, status, Z = NULL,
     }
 
     colnames(XCS) <- paste0("Main_CS", cs_indices)
+
+    XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
     XCS <- as.matrix(XCS)
     XCS_refit <- XCS
     noncs_term <- build_noncs_refit_term(
