@@ -20,6 +20,7 @@ SuSiE_IRLS(
   L.init = 1,
   noncs_var = 0.1,
   noncs_max_abs_cor = 0.9,
+  lbf_threshold = 1,
   scale_data = TRUE,
   suff_block_size = 10000L,
   verbose = TRUE
@@ -81,6 +82,17 @@ non-CS term and applicable existing refit covariates, including `Z` and
 credible-set summary variables. Correlations equal to or above the
 threshold are rejected. The effective threshold is capped at 0.9;
 smaller user-supplied values remain effective. Default 0.9.}
+
+\item{lbf_threshold}{Natural-log Bayes factor cutoff for SuSiE components
+after the warm-up (\code{iter > min.iter}). Components with \code{lbf <=
+lbf_threshold} are removed from the coefficient vector, the credible sets
+and the refit; each remaining component that does not form a credible set
+enters the refit as its own \code{Main_lbf<l>} term with ridge variance \code{V_l},
+replacing the aggregate non-CS term; and the next iteration uses
+\code{L = (#remaining) + 1}, capped at \code{L}. This gives fixed-V fits the
+pruning that \code{estimate_prior_variance = TRUE} provides. \code{NULL} keeps the
+previous behaviour (credible-set terms plus one aggregate non-CS term,
+fixed \code{L}). Default 1.}
 
 \item{scale_data}{Logical. If TRUE, standardize `X` with
 `SuSiE4I::large_scale()` and center and scale non-binary columns of `Z`;

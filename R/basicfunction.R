@@ -8,8 +8,9 @@ susie_cs_list <- function(fit) {
   list(index = index[ord], vars = vars[ord])
 }
 
-Identifying_MainEffect <- function(fit, nam) {
+Identifying_MainEffect <- function(fit, nam, keep_cs = NULL) {
   cs <- susie_cs_list(fit)
+  if (!is.null(keep_cs)) cs <- subset_cs_list(cs, keep_cs)
   if (!length(cs$index)) return(NULL)
   S <- lapply(seq_along(cs$index), function(k) {
     i <- cs$index[k]
@@ -37,17 +38,6 @@ xv <- function(X, B) {
   } else {
     CppMatrix::matrixMultiply(X, as.matrix(B))
   }
-}
-
-# Flip each CS summary column so it moves with its lead (highest-PIP) member:
-# a positive refit coefficient then means the lead's X raises the response.
-orient_cs_by_lead <- function(XCS, fit, cs_list, cs_indices) {
-  lead_sign <- vapply(cs_indices, function(i) {
-    v <- cs_list$vars[[match(i, cs_list$index)]]
-    sg <- sign(fit$mu[i, v[which.max(fit$pip[v])]])
-    if (is.finite(sg) && sg != 0) sg else 1
-  }, numeric(1))
-  sweep(XCS, 2L, lead_sign, "*")
 }
 
 # For a geno X, adds A1 (counted allele) and A2 to discovery_summary, and on
@@ -94,12 +84,127 @@ solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   if (is.null(B)) CppMatrix::matrixInverse(A) else CppMatrix::matrixSolve(A, as.matrix(B))
 }
 
-make_diagnostics <- function(iterations, eps, start_time) {
+make_diagnostics <- function(iterations, eps, start_time, L_final = NA_integer_) {
   final_eps <- if (length(eps)) as.numeric(utils::tail(eps, 1L)) else NA_real_
   data.frame(
     iterations = as.integer(iterations),
     eps = final_eps,
-    runtime_seconds = unname(proc.time()[["elapsed"]] - start_time)
+    runtime_seconds = unname(proc.time()[["elapsed"]] - start_time),
+    L_final = as.integer(L_final)
+  )
+}
+
+subset_cs_list <- function(cs_list, keep) {
+  k <- cs_list$index %in% keep
+  list(index = cs_list$index[k], vars = cs_list$vars[k])
+}
+
+validate_lbf_threshold <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (!is.numeric(x) || length(x) != 1L || !is.finite(x)) {
+    stop("lbf_threshold must be NULL or a finite numeric scalar.")
+  }
+  as.numeric(x)
+}
+
+# One summary column per component: X (alpha_l * sign(mu_l)), with alpha_l
+# restricted to `vars` and renormalized, flipped to move with the component's
+# lead variant (highest PIP within a credible set, highest alpha otherwise).
+component_columns <- function(X, fitX, components, vars = NULL) {
+  A <- matrix(0, nrow = length(components), ncol = ncol(fitX$alpha))
+  lead_sign <- numeric(length(components))
+  for (k in seq_along(components)) {
+    l <- components[k]
+    v <- if (is.null(vars)) seq_len(ncol(fitX$alpha)) else vars[[k]]
+    a <- fitX$alpha[l, v]
+    A[k, v] <- a / sum(a) * sign(fitX$mu[l, v])
+    lead <- if (is.null(vars)) which.max(a) else which.max(fitX$pip[v])
+    sg <- sign(fitX$mu[l, v[lead]])
+    lead_sign[k] <- if (is.finite(sg) && sg != 0) sg else 1
+  }
+  out <- xv(X, t(A))
+  if (is.null(dim(out))) out <- matrix(out, ncol = 1)
+  sweep(as.matrix(out), 2L, lead_sign, "*")
+}
+
+# Builds the X part of the outer refit from a SuSiE fit.
+# kill = FALSE (warm-up, or lbf_threshold = NULL): one column per credible set
+# plus the aggregate Main_noncs_res term, as before.
+# kill = TRUE: components with lbf <= lbf_threshold are removed from beta and
+# from every term; credible sets with lbf above it keep their Main_CS column;
+# every other component above it gets its own Main_lbf<l> column penalized by
+# its own V_l. No aggregate non-CS term remains. L_next = (#kept) + 1, capped
+# at L_max.
+build_refit_design <- function(X, fitX, cor_design = NULL, kill = FALSE,
+                               lbf_threshold = 1, L_max = nrow(fitX$alpha),
+                               noncs_var = 0.1, noncs_max_abs_cor = 0.9,
+                               verbose = FALSE) {
+  p <- ncol(X)
+  L_fit <- nrow(fitX$alpha)
+  cs_list <- susie_cs_list(fitX)
+  lbf <- as.numeric(fitX$lbf)
+  V <- as.numeric(fitX$V)
+  kept <- if (kill) {
+    which(is.finite(lbf) & lbf > lbf_threshold & is.finite(V) & V > 0)
+  } else {
+    seq_len(L_fit)
+  }
+  if (kill) cs_list <- subset_cs_list(cs_list, kept)
+  cs_indices <- cs_list$index
+  beta <- susie_main_coef(fitX, p = p, components = kept)
+
+  XCS <- NULL
+  if (length(cs_indices)) {
+    XCS <- component_columns(X, fitX, cs_indices, cs_list$vars)
+    colnames(XCS) <- paste0("Main_CS", cs_indices)
+  }
+  XCS_refit <- XCS
+
+  if (!kill) {
+    if (!length(cs_indices)) {
+      noncs_res <- build_no_cs_noncs_refit_term(
+        X, fitX, cor_design = cor_design,
+        noncs_max_abs_cor = noncs_max_abs_cor
+      )
+      if (!is.null(noncs_res)) {
+        XCS_refit <- matrix(noncs_res, ncol = 1)
+        colnames(XCS_refit) <- "Main_noncs_res"
+      }
+    } else {
+      noncs_term <- build_noncs_refit_term(
+        X = X, fitX = fitX, CSdt = summary(fitX)$vars,
+        cs_indices = cs_indices, XCS = XCS, noncs_var = noncs_var,
+        noncs_max_abs_cor = noncs_max_abs_cor, cor_design = cor_design
+      )
+      if (!is.null(noncs_term)) {
+        XCS_refit <- cbind(XCS_refit, Main_noncs_res = noncs_term)
+      }
+    }
+  } else {
+    for (l in setdiff(kept, cs_indices)) {
+      term <- component_columns(X, fitX, l)
+      gate <- cbind(XCS_refit, cor_design)
+      if (!noncs_correlation_ok(term, gate, max_abs_cor = noncs_max_abs_cor)) next
+      colnames(term) <- paste0("Main_lbf", l)
+      XCS_refit <- cbind(XCS_refit, term)
+    }
+  }
+
+  if (is.null(XCS_refit) && verbose) {
+    cat("No refit X term in this iteration; continuing the outer refit without one.\n")
+  }
+  penalty_names <- grep(
+    "^(Main_CS[0-9]+|Main_lbf[0-9]+|Main_noncs_res)$",
+    colnames(XCS_refit), value = TRUE
+  )
+
+  list(
+    XCS_refit = XCS_refit,
+    cs_indices = cs_indices,
+    beta = beta,
+    kept = kept,
+    penalty_V = .refit_penalty_variance(fitX, cs_indices, penalty_names),
+    L_next = if (kill) as.integer(max(1L, min(L_max, length(kept) + 1L))) else L_fit
   )
 }
 
@@ -180,8 +285,10 @@ clean_coef <- function(x) {
 # coef.susie() puts the intercept first, but susie_ss() fits carry an NA (or,
 # in some susieR versions, NULL) intercept, so coef(fit)[-1] either emits a
 # hint on every call or silently drops the first variable.
-susie_main_coef <- function(fit, p = NULL) {
-  b <- colSums(fit$alpha * fit$mu)
+susie_main_coef <- function(fit, p = NULL, components = NULL) {
+  if (is.null(components)) components <- seq_len(nrow(fit$alpha))
+  b <- colSums(fit$alpha[components, , drop = FALSE] *
+                 fit$mu[components, , drop = FALSE])
   if (!is.null(fit$theta)) b <- b + fit$theta
   scale <- fit$X_column_scale_factors
   if (length(scale) == length(b)) b <- b / scale

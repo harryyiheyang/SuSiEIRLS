@@ -316,6 +316,7 @@ Run_CLM <- function(X, y, Z = NULL,
                      L.init = 1,
                      noncs_var = 0.1,
                      noncs_max_abs_cor = 0.9,
+                     lbf_threshold = 1,
                      suff_block_size = 10000L) {
 
   run_start <- proc.time()[["elapsed"]]
@@ -347,9 +348,10 @@ Run_CLM <- function(X, y, Z = NULL,
   beta_prev <- beta
   alpha_prev <- alpha * 0
   fitX <- NULL
-  XCS <- NULL
+  XCS_refit <- NULL
   stat <- NULL
 
+  L_cur <- L
   fitX_no_cs_streak <- 0L
   for (iter in seq_len(max.iter)) {
     beta_prev <- beta
@@ -365,56 +367,23 @@ Run_CLM <- function(X, y, Z = NULL,
     ss_args <- .susie_iteration_args(
       susie_para,
       list(XtX = stat$XtX, Xty = stat$Xty, yty = stat$yty,
-           n = n, L = L),
+           n = n, L = L_cur),
       iter, min.iter
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta <- susie_main_coef(fitX, p = p)
-    CSdt <- summary(fitX)$vars
-    cs_list <- susie_cs_list(fitX)
-    cs_indices <- cs_list$index
+    kill <- !is.null(lbf_threshold) && iter > min.iter
+    design <- build_refit_design(
+      X, fitX, cor_design = Z, kill = kill,
+      lbf_threshold = lbf_threshold, L_max = L,
+      noncs_var = noncs_var, noncs_max_abs_cor = noncs_max_abs_cor,
+      verbose = verbose
+    )
+    beta <- design$beta
+    cs_indices <- design$cs_indices
+    XCS_refit <- design$XCS_refit
+    L_cur <- design$L_next
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
-
-    if (!length(cs_indices)) {
-      noncs_res <- build_no_cs_noncs_refit_term(
-        X, fitX, cor_design = Z,
-        noncs_max_abs_cor = noncs_max_abs_cor
-      )
-      if (is.null(noncs_res)) {
-        XCS <- NULL
-        XCS_refit <- NULL
-        if (verbose) {
-          cat("No credible set detected; continuing the outer refit without an X term.\n")
-        }
-      } else {
-        XCS <- matrix(noncs_res, ncol = 1)
-        colnames(XCS) <- "Main_noncs_res"
-        XCS_refit <- XCS
-      }
-    } else {
-      Alpha_filtered <- fitX$alpha * 0
-      for (i in cs_indices) {
-        vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
-        Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
-      }
-      Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
-      XCS <- XCS[, cs_indices, drop = FALSE]
-      if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
-      colnames(XCS) <- paste0("Main_CS", cs_indices)
-      XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
-      XCS_refit <- XCS
-
-      noncs_term <- build_noncs_refit_term(
-        X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
-        XCS = XCS, noncs_var = noncs_var,
-        noncs_max_abs_cor = noncs_max_abs_cor, cor_design = Z
-      )
-      if (!is.null(noncs_term)) {
-        XCS_refit <- cbind(XCS_refit, Main_noncs_res = noncs_term)
-      }
-    }
 
     pred_refit <- .mgcv_predictor_data(Z = Z, Xextra = XCS_refit, n = n)
     fit_final <- .clm_fit_explicit(
@@ -444,7 +413,7 @@ Run_CLM <- function(X, y, Z = NULL,
     }
   }
 
-  MainIndex <- if (is.null(fitX)) NULL else Identifying_MainEffect(fitX, colnames(X))
+  MainIndex <- if (is.null(fitX)) NULL else Identifying_MainEffect(fitX, colnames(X), keep_cs = design$cs_indices)
   if (!is.null(XCS_refit)) {
     pred <- .mgcv_predictor_data(Z = Z, Xextra = XCS_refit, n = n)
     fit_final <- .clm_fit_explicit(
@@ -471,7 +440,8 @@ Run_CLM <- function(X, y, Z = NULL,
 
   list(
     diagnostics = make_diagnostics(
-      if (exists("iter")) iter else 0L, g, run_start
+      if (exists("iter")) iter else 0L, g, run_start,
+      L_final = if (is.null(fitX)) NA_integer_ else nrow(fitX$alpha)
     ),
     fitX = fitX,
     fitJoint = fit_final,

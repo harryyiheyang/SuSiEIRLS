@@ -15,6 +15,10 @@
   is_cs <- !is.na(pos)
   if (any(is_cs)) out[is_cs] <- V[cs_indices[pos[is_cs]]]
 
+  lbf_l <- suppressWarnings(as.integer(sub("^Main_lbf", "", term_names)))
+  is_lbf <- grepl("^Main_lbf[0-9]+$", term_names)
+  if (any(is_lbf)) out[is_lbf] <- V[lbf_l[is_lbf]]
+
   is_noncs <- term_names == "Main_noncs_res"
   if (any(is_noncs)) {
     positive <- V[is.finite(V) & V > 0]
@@ -22,7 +26,7 @@
     out[is_noncs] <- max(positive)
   }
 
-  unknown <- !is_cs & term_names != "Main_noncs_res"
+  unknown <- !is_cs & !is_lbf & term_names != "Main_noncs_res"
   if (any(unknown)) {
     stop("Unknown penalized refit term: ", paste(term_names[unknown], collapse = ", "), ".")
   }

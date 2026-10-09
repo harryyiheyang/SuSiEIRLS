@@ -58,6 +58,16 @@
 #'   credible-set summary variables. Correlations equal to or above the
 #'   threshold are rejected. The effective threshold is capped at 0.9;
 #'   smaller user-supplied values remain effective. Default 0.9.
+#' @param lbf_threshold Natural-log Bayes factor cutoff for SuSiE components
+#'   after the warm-up (`iter > min.iter`). Components with `lbf <=
+#'   lbf_threshold` are removed from the coefficient vector, the credible sets
+#'   and the refit; each remaining component that does not form a credible set
+#'   enters the refit as its own `Main_lbf<l>` term with ridge variance `V_l`,
+#'   replacing the aggregate non-CS term; and the next iteration uses
+#'   `L = (#remaining) + 1`, capped at `L`. This gives fixed-V fits the
+#'   pruning that `estimate_prior_variance = TRUE` provides. `NULL` keeps the
+#'   previous behaviour (credible-set terms plus one aggregate non-CS term,
+#'   fixed `L`). Default 1.
 #' @param scale_data Logical. If TRUE, standardize `X` with
 #'   `SuSiE4I::large_scale()` and center and scale non-binary columns of `Z`;
 #'   binary columns of `Z` remain on their original scale. If FALSE, `X` and
@@ -96,6 +106,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
                        L.init = 1,
                        noncs_var = 0.1,
                        noncs_max_abs_cor = 0.9,
+                       lbf_threshold = 1,
                        scale_data = TRUE,
                        suff_block_size = 10000L,
                        verbose = TRUE) {
@@ -112,7 +123,8 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
     n_threads = n_threads, L = L, susie_para = susie_para,
     max.iter = max.iter, max.eps = max.eps, min.iter = min.iter,
     weight_cutoff = weight_cutoff, L.init = L.init, noncs_var = noncs_var,
-    noncs_max_abs_cor = noncs_max_abs_cor, scale_data = scale_data,
+    noncs_max_abs_cor = noncs_max_abs_cor, lbf_threshold = lbf_threshold,
+    scale_data = scale_data,
     suff_block_size = suff_block_size, verbose = verbose
   )
   if (inherits(X, "geno")) res <- add_alleles(res, X)
@@ -129,6 +141,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
                              L.init = 1,
                              noncs_var = 0.1,
                              noncs_max_abs_cor = 0.9,
+                             lbf_threshold = 1,
                              scale_data = TRUE,
                              suff_block_size = 10000L,
                              verbose = TRUE) {
@@ -163,6 +176,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
   if (weight_cutoff <= 0) weight_cutoff <- 1e-6
   if (weight_cutoff >= 0.05) weight_cutoff <- 0.049
   noncs_max_abs_cor <- validate_noncs_max_abs_cor(noncs_max_abs_cor)
+  lbf_threshold <- validate_lbf_threshold(lbf_threshold)
   if (!is.numeric(max.iter) || length(max.iter) != 1L ||
       !is.finite(max.iter) || max.iter < 1) {
     stop("max.iter must be a positive integer.")
@@ -244,6 +258,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
         L.init = L.init,
         noncs_var = noncs_var,
         noncs_max_abs_cor = noncs_max_abs_cor,
+        lbf_threshold = lbf_threshold,
         suff_block_size = suff_block_size
       )
     )
@@ -266,6 +281,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
         L.init = L.init,
         noncs_var = noncs_var,
         noncs_max_abs_cor = noncs_max_abs_cor,
+        lbf_threshold = lbf_threshold,
         suff_block_size = suff_block_size
       )
     )
@@ -285,6 +301,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
         L.init = L.init,
         noncs_var = noncs_var,
         noncs_max_abs_cor = noncs_max_abs_cor,
+        lbf_threshold = lbf_threshold,
         suff_block_size = suff_block_size
       )
     )
@@ -310,6 +327,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
         L.init = L.init,
         noncs_var = noncs_var,
         noncs_max_abs_cor = noncs_max_abs_cor,
+        lbf_threshold = lbf_threshold,
         suff_block_size = suff_block_size
       )
     )
@@ -333,6 +351,7 @@ SuSiE_IRLS <- function(X, Z = NULL, y,
       L.init = L.init,
       noncs_var = noncs_var,
       noncs_max_abs_cor = noncs_max_abs_cor,
+      lbf_threshold = lbf_threshold,
       suff_block_size = suff_block_size
     )
   )

@@ -118,6 +118,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
                     L.init = 1,
                     noncs_var = 0.1,
                     noncs_max_abs_cor = 0.9,
+                    lbf_threshold = 1,
                     suff_block_size = 10000L) {
 
   run_start <- proc.time()[["elapsed"]]
@@ -163,11 +164,12 @@ Run_Cox <- function(X, y, status, Z = NULL,
   beta = rep(0, p)
   beta_prev = beta
   alpha_prev = alpha * 0
-  XCS <- NULL
+  XCS_refit <- NULL
 
   # ============================================
   # Main iteration loop
   # ============================================
+  L_cur <- L
   fitX_no_cs_streak <- 0L
   for (iter in seq_len(max.iter)) {
     beta_prev = beta
@@ -241,74 +243,28 @@ Run_Cox <- function(X, y, status, Z = NULL,
     # Run SuSiE-SS on the Cox score sufficient statistics.
     ss_args <- .susie_iteration_args(
       susie_para,
-      list(XtX = XtX, Xty = Xty, yty = n - 1, n = n, L = L),
+      list(XtX = XtX, Xty = Xty, yty = n - 1, n = n, L = L_cur),
       iter, min.iter
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 
-    beta = susie_main_coef(fitX, p = p)
-
-    # Extract credible sets using summary information
-    CSdt <- summary(fitX)$vars
-    cs_list <- susie_cs_list(fitX)
-    cs_indices <- cs_list$index
-    cs_indices = sort(cs_indices)
-    fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
-
-    if (length(cs_indices) == 0) {
-      noncs_res <- build_no_cs_noncs_refit_term(
-        X, fitX, cor_design = Z,
-        noncs_max_abs_cor = noncs_max_abs_cor
-      )
-      if (is.null(noncs_res)) {
-        XCS <- NULL
-        XCS_refit <- NULL
-        if (verbose) {
-          cat("No credible set detected; continuing the outer refit without an X term.\n")
-        }
-      } else {
-        XCS <- matrix(noncs_res, ncol = 1)
-        colnames(XCS) <- "Main_noncs_res"
-        XCS <- as.matrix(XCS)
-        XCS_refit <- XCS
-      }
-    } else {
-
-    Alpha_filtered <- fitX$alpha * 0
-    for (i in cs_indices) {
-      vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
-      Alpha_filtered[i, vars_in_cs_i] <- fitX$alpha[i, vars_in_cs_i] / sum(fitX$alpha[i, vars_in_cs_i])
-    }
-
-    # Align within-CS SNP directions while preserving PIP weights.
-    Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-    XCS <- xv(X, t(as.matrix(Alpha_filtered)))
-    XCS <- XCS[, cs_indices, drop = FALSE]
-
-    if (is.null(dim(XCS))) {
-      XCS <- matrix(XCS, ncol = 1)
-    }
-
-    colnames(XCS) <- paste0("Main_CS", cs_indices)
-
-    XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
-    XCS <- as.matrix(XCS)
-    XCS_refit <- XCS
-    noncs_term <- build_noncs_refit_term(
-      X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
-      XCS = XCS, noncs_var = noncs_var,
-      noncs_max_abs_cor = noncs_max_abs_cor, cor_design = Z
+    kill <- !is.null(lbf_threshold) && iter > min.iter
+    design <- build_refit_design(
+      X, fitX, cor_design = Z, kill = kill,
+      lbf_threshold = lbf_threshold, L_max = L,
+      noncs_var = noncs_var, noncs_max_abs_cor = noncs_max_abs_cor,
+      verbose = verbose
     )
-    if (!is.null(noncs_term)) {
-      XCS_refit <- cbind(XCS_refit, Main_noncs_res = noncs_term)
-    }
-    }
+    beta <- design$beta
+    cs_indices <- design$cs_indices
+    XCS_refit <- design$XCS_refit
+    L_cur <- design$L_next
+    fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
     # ============================================
     # Refit Cox with selected credible sets
     # ============================================
-    penalty_names <- grep("^(Main_CS[0-9]+|Main_noncs_res)$", colnames(XCS_refit), value = TRUE)
-    penalty_V <- .refit_penalty_variance(fitX, cs_indices, penalty_names)
+    penalty_V <- design$penalty_V
     fit_final <- .cox_fit_fixed_ridge(
       y, status, Z, Xextra = XCS_refit, penalty_V = penalty_V
     )
@@ -347,12 +303,11 @@ Run_Cox <- function(X, y, status, Z = NULL,
   # ============================================
   # Post-processing
   # ============================================
-  penalty_names <- grep("^(Main_CS[0-9]+|Main_noncs_res)$", colnames(XCS_refit), value = TRUE)
-  penalty_V <- .refit_penalty_variance(fitX, cs_indices, penalty_names)
+  penalty_V <- design$penalty_V
   fit_final <- .cox_fit_fixed_ridge(
     y, status, Z, Xextra = XCS_refit, penalty_V = penalty_V
   )
-  MainIndex = Identifying_MainEffect(fitX, colnames(X))
+  MainIndex = Identifying_MainEffect(fitX, colnames(X), keep_cs = design$cs_indices)
   G = .cox_coef_table(fit_final)
   MainIndex <- safe_add_p(MainIndex, G)
   fit_final$n_eff <- n_eff
@@ -371,7 +326,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
   }
 
   AA = list(
-    diagnostics = make_diagnostics(iter, g, run_start),
+    diagnostics = make_diagnostics(iter, g, run_start, L_final = nrow(fitX$alpha)),
     fitX = fitX,
     fitJoint = fit_final,
     discovery_summary = MainIndex

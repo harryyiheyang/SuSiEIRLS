@@ -40,6 +40,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
                      L.init = 1,
                      noncs_var = 0.1,
                      noncs_max_abs_cor = 0.9,
+                     lbf_threshold = 1,
                      suff_block_size = 10000L) {
 
   run_start <- proc.time()[["elapsed"]]
@@ -78,9 +79,10 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
   beta_prev <- beta
   alpha_prev <- alpha * 0
   fitX <- NULL
-  XCS <- NULL
+  XCS_refit <- NULL
   work <- NULL
 
+  L_cur <- L
   fitX_no_cs_streak <- 0L
   for (iter in seq_len(max.iter)) {
     beta_prev <- beta
@@ -99,70 +101,29 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
       susie_para,
       list(
         XtX = suff$XtX, Xty = suff$Xty, yty = suff$yty,
-        n = max(0.95 * n, work$n_eff), L = L
+        n = max(0.95 * n, work$n_eff), L = L_cur
       ),
       iter, min.iter
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
     rm(suff)
 
-    beta <- susie_main_coef(fitX, p = p)
-    CSdt <- summary(fitX)$vars
-    cs_list <- susie_cs_list(fitX)
-    cs_indices <- cs_list$index
+    kill <- !is.null(lbf_threshold) && iter > min.iter
+    design <- build_refit_design(
+      X, fitX, cor_design = Z, kill = kill,
+      lbf_threshold = lbf_threshold, L_max = L,
+      noncs_var = noncs_var, noncs_max_abs_cor = noncs_max_abs_cor,
+      verbose = verbose
+    )
+    beta <- design$beta
+    cs_indices <- design$cs_indices
+    XCS_refit <- design$XCS_refit
+    L_cur <- design$L_next
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
-
-    if (!length(cs_indices)) {
-      noncs_res <- build_no_cs_noncs_refit_term(
-        X, fitX, cor_design = Z,
-        noncs_max_abs_cor = noncs_max_abs_cor
-      )
-      if (is.null(noncs_res)) {
-        XCS <- NULL
-        XCS_refit <- NULL
-        if (verbose) {
-          cat("No credible set detected; continuing the outer refit without an X term.\n")
-        }
-      } else {
-        XCS <- matrix(noncs_res, ncol = 1)
-        colnames(XCS) <- "Main_noncs_res"
-        XCS_refit <- XCS
-      }
-    } else {
-      Alpha_filtered <- fitX$alpha * 0
-      for (i in cs_indices) {
-        vars_in_cs_i <- cs_list$vars[[match(i, cs_list$index)]]
-        Alpha_filtered[i, vars_in_cs_i] <-
-          fitX$alpha[i, vars_in_cs_i] /
-          sum(fitX$alpha[i, vars_in_cs_i])
-      }
-      Alpha_filtered <- Alpha_filtered * sign(fitX$mu)
-      XCS <- xv(X, t(as.matrix(Alpha_filtered)))
-      XCS <- XCS[, cs_indices, drop = FALSE]
-      if (is.null(dim(XCS))) XCS <- matrix(XCS, ncol = 1)
-      colnames(XCS) <- paste0("Main_CS", cs_indices)
-      XCS <- orient_cs_by_lead(XCS, fitX, cs_list, cs_indices)
-      XCS_refit <- XCS
-
-      noncs_term <- build_noncs_refit_term(
-        X = X, fitX = fitX, CSdt = CSdt, cs_indices = cs_indices,
-        XCS = XCS, noncs_var = noncs_var,
-        noncs_max_abs_cor = noncs_max_abs_cor, cor_design = Z
-      )
-      if (!is.null(noncs_term)) {
-        XCS_refit <- cbind(XCS_refit, Main_noncs_res = noncs_term)
-      }
-    }
 
     pred <- .mgcv_predictor_data(Z, XCS_refit, n = n)
     Data <- cbind(response_info$data, pred)
-    penalty_names <- grep(
-      "^(Main_CS[0-9]+|Main_noncs_res)$",
-      colnames(XCS_refit), value = TRUE
-    )
-    penalty_V <- .refit_penalty_variance(
-      fitX, cs_indices, penalty_names
-    )
+    penalty_V <- design$penalty_V
     fit_final <- .mgcv_fit_fixed_ridge(
       response_info$response, colnames(pred), Data, family, penalty_V,
       dispersion = 1, mgcv_model = "gam"
@@ -192,17 +153,11 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
   }
 
   MainIndex <- if (is.null(fitX)) NULL else
-    Identifying_MainEffect(fitX, colnames(X))
+    Identifying_MainEffect(fitX, colnames(X), keep_cs = design$cs_indices)
   if (!is.null(XCS_refit)) {
     pred <- .mgcv_predictor_data(Z, XCS_refit, n = n)
     Data <- cbind(response_info$data, pred)
-    penalty_names <- grep(
-      "^(Main_CS[0-9]+|Main_noncs_res)$",
-      colnames(XCS_refit), value = TRUE
-    )
-    penalty_V <- .refit_penalty_variance(
-      fitX, cs_indices, penalty_names
-    )
+    penalty_V <- design$penalty_V
     fit_final <- .mgcv_fit_fixed_ridge(
       response_info$response, colnames(pred), Data, family, penalty_V,
       dispersion = 1, mgcv_model = "gam"
@@ -231,7 +186,8 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
 
   list(
     diagnostics = make_diagnostics(
-      if (exists("iter")) iter else 0L, g, run_start
+      if (exists("iter")) iter else 0L, g, run_start,
+      L_final = if (is.null(fitX)) NA_integer_ else nrow(fitX$alpha)
     ),
     fitX = fitX,
     fitJoint = fit_final,
