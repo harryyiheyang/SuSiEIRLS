@@ -368,7 +368,8 @@ susie_main_coef <- function(fit, p = NULL, components = NULL) {
   .validate_susie_para(susie_para)
 }
 
-.susie_iteration_args <- function(susie_para, structural, iter, min.iter) {
+.susie_iteration_args <- function(susie_para, structural, iter, min.iter,
+                                  lbf_threshold = NULL) {
   args <- .susie_default_para()
   overrides <- susie_para[!vapply(susie_para, is.null, logical(1))]
   if (iter <= min.iter && length(overrides)) {
@@ -383,6 +384,15 @@ susie_main_coef <- function(fit, p = NULL, components = NULL) {
   epv <- args$estimate_prior_variance
   if (!is.logical(epv) || length(epv) != 1L || is.na(epv)) {
     stop("susie_para$estimate_prior_variance must be TRUE or FALSE.")
+  }
+  # Fixed V after the warm-up: keep V_l, but let susieR's null check set
+  # V_l = 0 whenever loglik(V_l) - loglik(0) (the component lbf) is at most
+  # lbf_threshold, so null components drop out of the coordinate ascent the
+  # way they do when V is estimated (check_null_threshold).
+  if (!is.null(lbf_threshold) && iter > min.iter && !isTRUE(epv)) {
+    args$estimate_prior_variance <- TRUE
+    args$estimate_prior_method <- "simple"
+    args$check_null_threshold <- lbf_threshold
   }
   if ("prior_variance" %in% names(args)) {
     y_scale <- structural$yty / (structural$n - 1)

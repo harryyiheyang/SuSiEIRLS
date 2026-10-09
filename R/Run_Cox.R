@@ -243,7 +243,7 @@ Run_Cox <- function(X, y, status, Z = NULL,
     ss_args <- .susie_iteration_args(
       susie_para,
       list(XtX = XtX, Xty = Xty, yty = n - 1, n = n, L = L),
-      iter, min.iter
+      iter, min.iter, lbf_threshold = lbf_threshold
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 

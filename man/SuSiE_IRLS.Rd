@@ -84,14 +84,16 @@ threshold are rejected. The effective threshold is capped at 0.9;
 smaller user-supplied values remain effective. Default 0.9.}
 
 \item{lbf_threshold}{Natural-log Bayes factor cutoff for SuSiE components
-after the warm-up (\code{iter > min.iter}). Components with \code{lbf <=
-lbf_threshold} are removed from the coefficient vector, the credible sets
-and the refit; each remaining component that does not form a credible set
-enters the refit as its own \code{Main_lbf<l>} term with ridge variance \code{V_l},
-replacing the aggregate non-CS term. \code{L} stays fixed. This gives
-fixed-V fits the pruning that \code{estimate_prior_variance = TRUE} provides.
-\code{NULL} keeps the previous behaviour (credible-set terms plus one
-aggregate non-CS term). Default 1.}
+after the warm-up (\code{iter > min.iter}). With fixed V
+(\code{estimate_prior_variance = FALSE}), susieR's null check is switched on
+(\code{estimate_prior_method = "simple"}, \code{check_null_threshold =
+lbf_threshold}): a component whose lbf is at most the cutoff gets
+\code{V_l = 0} and leaves the coordinate ascent, as it would with estimated V;
+\code{L} is unchanged. In the refit, components with \code{lbf <= lbf_threshold}
+are dropped, and each remaining component that does not form a credible
+set enters as its own \code{Main_lbf<l>} term with ridge variance \code{V_l},
+replacing the aggregate non-CS term. \code{NULL} keeps the previous behaviour.
+Default 1.}
 
 \item{scale_data}{Logical. If TRUE, standardize `X` with
 `SuSiE4I::large_scale()` and center and scale non-binary columns of `Z`;

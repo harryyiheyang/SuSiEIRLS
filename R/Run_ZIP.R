@@ -153,7 +153,7 @@ Run_ZIP <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
       susie_para,
       list(XtX = suff$XtX, Xty = suff$Xty, yty = suff$yty,
            n = max(0.95 * n, work$n_eff), L = L),
-      iter, min.iter
+      iter, min.iter, lbf_threshold = lbf_threshold
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
     rm(suff)

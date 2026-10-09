@@ -367,7 +367,7 @@ Run_CLM <- function(X, y, Z = NULL,
       susie_para,
       list(XtX = stat$XtX, Xty = stat$Xty, yty = stat$yty,
            n = n, L = L),
-      iter, min.iter
+      iter, min.iter, lbf_threshold = lbf_threshold
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
 

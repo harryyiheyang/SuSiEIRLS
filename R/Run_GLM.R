@@ -287,7 +287,7 @@ Run_GLM <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
       susie_para,
       list(XtX = suff$XtX, Xty = suff$Xty, yty = suff$yty,
            n = n_ss, L = L),
-      iter, min.iter
+      iter, min.iter, lbf_threshold = lbf_threshold
     )
     if (is_gaussian) {
       ss_args$estimate_residual_variance <- FALSE
