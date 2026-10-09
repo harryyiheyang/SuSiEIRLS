@@ -56,7 +56,7 @@ fit <- SuSiE_IRLS(X = X, Z = Z, y = Surv(time, status), L = 10)
 
 | Argument | Default | Description |
 |---|---|---|
-| `X` | — | $n \times p$ predictor matrix |
+| `X` | — | $n \times p$ predictor matrix, or a PLINK BED/PGEN file (see below) |
 | `y` | — | Response vector, or `Surv` object for Cox |
 | `Z` | `NULL` | $n \times q$ covariate matrix (projected out before SuSiE) |
 | `family` | `binomial(link = "logit")` | GLM or `mgcv` family; ignored when `y` is `Surv` |
@@ -73,6 +73,18 @@ one; otherwise they use the native `susieR::susie_ss()` default. Use
 `prior_variance` for an absolute coefficient prior variance. The legacy
 `scaled_prior_variance` name is accepted with a warning and interpreted the
 same way.
+
+### Genotypes from PLINK files
+
+`X` may also be a list of arguments to `SuSiE4I::geno_open()`, for example
+`X = list(bedfile = "chr1", snp_vec = snps, sample_vec = iids, impute = "mean")`
+(or `pgenfile = "chr1"` for PLINK 2), or a `geno` object it returned. The
+genotypes are kept in compact 2-bit form by SuSiE4I and every cross-product is
+computed from them, so `X` is never held as a dense $n \times p$ matrix in R;
+results match a dense `X` standardized with `scale_data = TRUE`. The rows of `y`
+(and of a `Surv` response) and `Z` must follow the sample order of the file (or
+of `sample_vec` when given), and values are A1 (BED) or ALT (PGEN) allele
+counts. This needs SuSiE4I >= 0.1.2.
 
 ### Output
 
