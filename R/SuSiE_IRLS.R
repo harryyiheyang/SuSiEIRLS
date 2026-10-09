@@ -63,11 +63,10 @@
 #'   lbf_threshold` are removed from the coefficient vector, the credible sets
 #'   and the refit; each remaining component that does not form a credible set
 #'   enters the refit as its own `Main_lbf<l>` term with ridge variance `V_l`,
-#'   replacing the aggregate non-CS term; and the next iteration uses
-#'   `L = (#remaining) + 1`, capped at `L`. This gives fixed-V fits the
-#'   pruning that `estimate_prior_variance = TRUE` provides. `NULL` keeps the
-#'   previous behaviour (credible-set terms plus one aggregate non-CS term,
-#'   fixed `L`). Default 1.
+#'   replacing the aggregate non-CS term. `L` stays fixed. This gives
+#'   fixed-V fits the pruning that `estimate_prior_variance = TRUE` provides.
+#'   `NULL` keeps the previous behaviour (credible-set terms plus one
+#'   aggregate non-CS term). Default 1.
 #' @param scale_data Logical. If TRUE, standardize `X` with
 #'   `SuSiE4I::large_scale()` and center and scale non-binary columns of `Z`;
 #'   binary columns of `Z` remain on their original scale. If FALSE, `X` and

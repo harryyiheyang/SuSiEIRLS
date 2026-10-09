@@ -84,13 +84,12 @@ solve_with_ridge <- function(A, B = NULL, ridge = 1e-8) {
   if (is.null(B)) CppMatrix::matrixInverse(A) else CppMatrix::matrixSolve(A, as.matrix(B))
 }
 
-make_diagnostics <- function(iterations, eps, start_time, L_final = NA_integer_) {
+make_diagnostics <- function(iterations, eps, start_time) {
   final_eps <- if (length(eps)) as.numeric(utils::tail(eps, 1L)) else NA_real_
   data.frame(
     iterations = as.integer(iterations),
     eps = final_eps,
-    runtime_seconds = unname(proc.time()[["elapsed"]] - start_time),
-    L_final = as.integer(L_final)
+    runtime_seconds = unname(proc.time()[["elapsed"]] - start_time)
   )
 }
 
@@ -133,10 +132,9 @@ component_columns <- function(X, fitX, components, vars = NULL) {
 # kill = TRUE: components with lbf <= lbf_threshold are removed from beta and
 # from every term; credible sets with lbf above it keep their Main_CS column;
 # every other component above it gets its own Main_lbf<l> column penalized by
-# its own V_l. No aggregate non-CS term remains. L_next = (#kept) + 1, capped
-# at L_max.
+# its own V_l. No aggregate non-CS term remains.
 build_refit_design <- function(X, fitX, cor_design = NULL, kill = FALSE,
-                               lbf_threshold = 1, L_max = nrow(fitX$alpha),
+                               lbf_threshold = 1,
                                noncs_var = 0.1, noncs_max_abs_cor = 0.9,
                                verbose = FALSE) {
   p <- ncol(X)
@@ -203,8 +201,7 @@ build_refit_design <- function(X, fitX, cor_design = NULL, kill = FALSE,
     cs_indices = cs_indices,
     beta = beta,
     kept = kept,
-    penalty_V = .refit_penalty_variance(fitX, cs_indices, penalty_names),
-    L_next = if (kill) as.integer(max(1L, min(L_max, length(kept) + 1L))) else L_fit
+    penalty_V = .refit_penalty_variance(fitX, cs_indices, penalty_names)
   )
 }
 

@@ -351,7 +351,6 @@ Run_CLM <- function(X, y, Z = NULL,
   XCS_refit <- NULL
   stat <- NULL
 
-  L_cur <- L
   fitX_no_cs_streak <- 0L
   for (iter in seq_len(max.iter)) {
     beta_prev <- beta
@@ -367,7 +366,7 @@ Run_CLM <- function(X, y, Z = NULL,
     ss_args <- .susie_iteration_args(
       susie_para,
       list(XtX = stat$XtX, Xty = stat$Xty, yty = stat$yty,
-           n = n, L = L_cur),
+           n = n, L = L),
       iter, min.iter
     )
     fitX <- do.call(susieR::susie_ss, ss_args)
@@ -375,14 +374,13 @@ Run_CLM <- function(X, y, Z = NULL,
     kill <- !is.null(lbf_threshold) && iter > min.iter
     design <- build_refit_design(
       X, fitX, cor_design = Z, kill = kill,
-      lbf_threshold = lbf_threshold, L_max = L,
+      lbf_threshold = lbf_threshold,
       noncs_var = noncs_var, noncs_max_abs_cor = noncs_max_abs_cor,
       verbose = verbose
     )
     beta <- design$beta
     cs_indices <- design$cs_indices
     XCS_refit <- design$XCS_refit
-    L_cur <- design$L_next
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
     pred_refit <- .mgcv_predictor_data(Z = Z, Xextra = XCS_refit, n = n)
@@ -440,8 +438,7 @@ Run_CLM <- function(X, y, Z = NULL,
 
   list(
     diagnostics = make_diagnostics(
-      if (exists("iter")) iter else 0L, g, run_start,
-      L_final = if (is.null(fitX)) NA_integer_ else nrow(fitX$alpha)
+      if (exists("iter")) iter else 0L, g, run_start
     ),
     fitX = fitX,
     fitJoint = fit_final,

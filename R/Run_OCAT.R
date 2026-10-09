@@ -82,7 +82,6 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
   XCS_refit <- NULL
   work <- NULL
 
-  L_cur <- L
   fitX_no_cs_streak <- 0L
   for (iter in seq_len(max.iter)) {
     beta_prev <- beta
@@ -101,7 +100,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
       susie_para,
       list(
         XtX = suff$XtX, Xty = suff$Xty, yty = suff$yty,
-        n = max(0.95 * n, work$n_eff), L = L_cur
+        n = max(0.95 * n, work$n_eff), L = L
       ),
       iter, min.iter
     )
@@ -111,14 +110,13 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
     kill <- !is.null(lbf_threshold) && iter > min.iter
     design <- build_refit_design(
       X, fitX, cor_design = Z, kill = kill,
-      lbf_threshold = lbf_threshold, L_max = L,
+      lbf_threshold = lbf_threshold,
       noncs_var = noncs_var, noncs_max_abs_cor = noncs_max_abs_cor,
       verbose = verbose
     )
     beta <- design$beta
     cs_indices <- design$cs_indices
     XCS_refit <- design$XCS_refit
-    L_cur <- design$L_next
     fitX_no_cs_streak <- if (length(cs_indices)) 0L else fitX_no_cs_streak + 1L
 
     pred <- .mgcv_predictor_data(Z, XCS_refit, n = n)
@@ -186,8 +184,7 @@ Run_OCAT <- function(X, y, Z = NULL, weight_cutoff = 0.0025,
 
   list(
     diagnostics = make_diagnostics(
-      if (exists("iter")) iter else 0L, g, run_start,
-      L_final = if (is.null(fitX)) NA_integer_ else nrow(fitX$alpha)
+      if (exists("iter")) iter else 0L, g, run_start
     ),
     fitX = fitX,
     fitJoint = fit_final,

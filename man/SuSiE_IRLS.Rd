@@ -88,11 +88,10 @@ after the warm-up (\code{iter > min.iter}). Components with \code{lbf <=
 lbf_threshold} are removed from the coefficient vector, the credible sets
 and the refit; each remaining component that does not form a credible set
 enters the refit as its own \code{Main_lbf<l>} term with ridge variance \code{V_l},
-replacing the aggregate non-CS term; and the next iteration uses
-\code{L = (#remaining) + 1}, capped at \code{L}. This gives fixed-V fits the
-pruning that \code{estimate_prior_variance = TRUE} provides. \code{NULL} keeps the
-previous behaviour (credible-set terms plus one aggregate non-CS term,
-fixed \code{L}). Default 1.}
+replacing the aggregate non-CS term. \code{L} stays fixed. This gives
+fixed-V fits the pruning that \code{estimate_prior_variance = TRUE} provides.
+\code{NULL} keeps the previous behaviour (credible-set terms plus one
+aggregate non-CS term). Default 1.}
 
 \item{scale_data}{Logical. If TRUE, standardize `X` with
 `SuSiE4I::large_scale()` and center and scale non-binary columns of `Z`;
